@@ -4,4 +4,10 @@
     <string name="reloading">再読み込み</string>
     <!-- ... other strings ... -->
     <string name="bookmark_management_title">ブックマーク管理</string>
+    <string name="search">Search</string>
+    <string name="search_hint">Enter search text...</string>
+    <string name="no_results_found">No results found</string>
+    <string name="search_results_format">%d/%d</string>
+
+    <!-- <string name="reload">Reload</string> -->
 </resources>

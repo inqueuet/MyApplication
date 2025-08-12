@@ -3,10 +3,13 @@ package com.example.myapplication
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Color
 import android.text.Html
+import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.text.TextPaint
 import android.text.method.LinkMovementMethod
+import android.text.style.BackgroundColorSpan
 import android.text.style.ClickableSpan
 import android.view.LayoutInflater
 import android.view.View
@@ -30,10 +33,17 @@ import java.util.regex.Pattern
 
 class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(DetailDiffCallback()) {
 
-    // ★★★ 追加: 引用タップをActivityに通知するためのコールバック ★★★
     var onQuoteClickListener: ((quotedText: String) -> Unit)? = null
+    private var currentSearchQuery: String? = null
 
-    // (companion object から onBindViewHolder までは変更なし)
+    fun setSearchQuery(query: String?) {
+        val oldQuery = currentSearchQuery
+        currentSearchQuery = query
+        if (oldQuery != query) {
+            notifyDataSetChanged()
+        }
+    }
+
     private companion object {
         const val VIEW_TYPE_TEXT = 1
         const val VIEW_TYPE_IMAGE = 2
@@ -56,11 +66,10 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-        // ★★★ 修正: TextViewHolderにコールバックを渡す ★★★
         return when (viewType) {
             VIEW_TYPE_TEXT -> TextViewHolder(
                 LayoutInflater.from(parent.context).inflate(R.layout.detail_item_text, parent, false),
-                onQuoteClickListener // コールバックを渡す
+                onQuoteClickListener
             )
             VIEW_TYPE_IMAGE -> ImageViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.detail_item_image, parent, false))
             VIEW_TYPE_VIDEO -> VideoViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.detail_item_video, parent, false))
@@ -70,44 +79,34 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = getItem(position)) {
-            is DetailContent.Text -> (holder as TextViewHolder).bind(item)
-            is DetailContent.Image -> (holder as ImageViewHolder).bind(item)
-            is DetailContent.Video -> (holder as VideoViewHolder).bind(item)
+            is DetailContent.Text -> (holder as TextViewHolder).bind(item, currentSearchQuery)
+            is DetailContent.Image -> (holder as ImageViewHolder).bind(item, currentSearchQuery) // Pass query
+            is DetailContent.Video -> (holder as VideoViewHolder).bind(item, currentSearchQuery) // Pass query
         }
     }
 
-    // --- 各ViewHolder ---
-
-    // ★★★ TextViewHolder をここから大幅に修正 ★★★
     class TextViewHolder(
         view: View,
         private val onQuoteClickListener: ((quotedText: String) -> Unit)?
     ) : RecyclerView.ViewHolder(view) {
         private val textView: TextView = view.findViewById(R.id.detailTextView)
 
-        fun bind(item: DetailContent.Text) {
-            // HTMLから基本的な装飾を反映したSpannedテキストを生成
+        fun bind(item: DetailContent.Text, searchQuery: String?) {
             val spannedFromHtml = Html.fromHtml(item.htmlContent, Html.FROM_HTML_MODE_COMPACT)
             val spannableBuilder = SpannableStringBuilder(spannedFromHtml)
 
-            // 正規表現で行頭の「>」に続く引用テキストを検索
-            // Pattern.MULTILINE で複数行に対応
             val pattern = Pattern.compile("^>(.+)$", Pattern.MULTILINE)
             val matcher = pattern.matcher(spannedFromHtml.toString())
 
             while (matcher.find()) {
-                val quoteText = matcher.group(1)?.trim() // 引用されているテキスト部分
+                val quoteText = matcher.group(1)?.trim()
                 if (quoteText != null) {
                     val start = matcher.start()
                     val end = matcher.end()
-
-                    // 引用部分にクリックイベントを設定
                     val clickableSpan = object : ClickableSpan() {
                         override fun onClick(widget: View) {
                             onQuoteClickListener?.invoke(quoteText)
                         }
-
-                        // 引用符の下線を消す（任意）
                         override fun updateDrawState(ds: TextPaint) {
                             super.updateDrawState(ds)
                             ds.isUnderlineText = false
@@ -117,11 +116,23 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 }
             }
 
-            textView.text = spannableBuilder
-            // LinkMovementMethodをセットすることでClickableSpanが反応するようになる
-            textView.movementMethod = LinkMovementMethod.getInstance()
+            if (!searchQuery.isNullOrEmpty()) {
+                val textString = spannableBuilder.toString()
+                var startIndex = textString.indexOf(searchQuery, ignoreCase = true)
+                while (startIndex >= 0) {
+                    val endIndex = startIndex + searchQuery.length
+                    spannableBuilder.setSpan(
+                        BackgroundColorSpan(Color.YELLOW),
+                        startIndex,
+                        endIndex,
+                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    startIndex = textString.indexOf(searchQuery, startIndex + 1, ignoreCase = true)
+                }
+            }
 
-            // テキスト全体のロングタップでのコピー機能は維持
+            textView.text = spannableBuilder
+            textView.movementMethod = LinkMovementMethod.getInstance()
             textView.setOnLongClickListener {
                 showCopyDialog(it.context, spannableBuilder.toString())
                 true
@@ -139,29 +150,44 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 .show()
         }
     }
-    // ★★★ TextViewHolder の修正はここまで ★★★
 
     class ImageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val imageView: ImageView = view.findViewById(R.id.detailImageView)
         private val promptTextView: TextView = view.findViewById(R.id.promptTextView)
 
-        fun bind(item: DetailContent.Image) {
+        fun bind(item: DetailContent.Image, searchQuery: String?) { // Added searchQuery
             imageView.load(item.imageUrl) {
                 crossfade(true)
                 placeholder(R.drawable.ic_launcher_background)
                 error(android.R.drawable.ic_dialog_alert)
                 size(coil.size.Size.ORIGINAL)
             }
-            promptTextView.isVisible = !item.prompt.isNullOrBlank()
-            promptTextView.text = item.prompt
-            
-            // 画像の長押しで保存ダイアログを表示
+
+            if (!item.prompt.isNullOrBlank()) {
+                promptTextView.isVisible = true
+                val promptText = item.prompt
+                val spannableBuilder = SpannableStringBuilder(promptText)
+
+                if (!searchQuery.isNullOrEmpty()) {
+                    val textLc = promptText.lowercase()
+                    val queryLc = searchQuery.lowercase()
+                    var startPos = textLc.indexOf(queryLc)
+                    while (startPos >= 0) {
+                        val endPos = startPos + queryLc.length
+                        spannableBuilder.setSpan(BackgroundColorSpan(Color.YELLOW), startPos, endPos, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        startPos = textLc.indexOf(queryLc, endPos)
+                    }
+                }
+                promptTextView.text = spannableBuilder
+            } else {
+                promptTextView.isVisible = false
+                promptTextView.text = null
+            }
+
             imageView.setOnLongClickListener {
                 showSaveDialog(item)
                 true
             }
-
-            // ★★★ 追加: promptTextView の長押しでコピー機能を呼び出す ★★★
             item.prompt?.takeIf { it.isNotBlank() }?.let { textToCopy ->
                 promptTextView.setOnLongClickListener {
                     showCopyDialog(itemView.context, textToCopy)
@@ -184,7 +210,6 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 .show()
         }
 
-        // ★★★ 追加: テキストコピー用のダイアログ表示メソッド ★★★
         private fun showCopyDialog(context: Context, textToCopy: String) {
             AlertDialog.Builder(context)
                 .setItems(arrayOf("テキストをコピー")) { _, _ ->
@@ -202,9 +227,8 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         private val promptTextView: TextView = view.findViewById(R.id.promptTextView)
         private var exoPlayer: ExoPlayer? = null
 
-        fun bind(item: DetailContent.Video) {
+        fun bind(item: DetailContent.Video, searchQuery: String?) { // Added searchQuery
             releasePlayer()
-
             val context = itemView.context
             exoPlayer = ExoPlayer.Builder(context).build().also { player ->
                 playerView.player = player
@@ -214,15 +238,31 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 player.prepare()
             }
 
-            promptTextView.isVisible = !item.prompt.isNullOrBlank()
-            promptTextView.text = item.prompt
+            if (!item.prompt.isNullOrBlank()) {
+                promptTextView.isVisible = true
+                val promptText = item.prompt
+                val spannableBuilder = SpannableStringBuilder(promptText)
+
+                if (!searchQuery.isNullOrEmpty()) {
+                    val textLc = promptText.lowercase()
+                    val queryLc = searchQuery.lowercase()
+                    var startPos = textLc.indexOf(queryLc)
+                    while (startPos >= 0) {
+                        val endPos = startPos + queryLc.length
+                        spannableBuilder.setSpan(BackgroundColorSpan(Color.YELLOW), startPos, endPos, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        startPos = textLc.indexOf(queryLc, endPos)
+                    }
+                }
+                promptTextView.text = spannableBuilder
+            } else {
+                promptTextView.isVisible = false
+                promptTextView.text = null
+            }
 
             playerView.setOnLongClickListener {
                 showSaveDialog(item)
                 true
             }
-            
-            // ★★★ 追加: promptTextView の長押しでコピー機能を呼び出す ★★★
             item.prompt?.takeIf { it.isNotBlank() }?.let { textToCopy ->
                 promptTextView.setOnLongClickListener {
                     showCopyDialog(itemView.context, textToCopy)
@@ -245,7 +285,6 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 .show()
         }
         
-        // ★★★ 追加: テキストコピー用のダイアログ表示メソッド (VideoViewHolder用) ★★★
         private fun showCopyDialog(context: Context, textToCopy: String) {
             AlertDialog.Builder(context)
                 .setItems(arrayOf("テキストをコピー")) { _, _ ->
@@ -266,7 +305,6 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         }
     }
 
-    // (DiffCallbackは変更なし)
     class DetailDiffCallback : DiffUtil.ItemCallback<DetailContent>() {
         override fun areItemsTheSame(oldItem: DetailContent, newItem: DetailContent): Boolean {
             return when {
