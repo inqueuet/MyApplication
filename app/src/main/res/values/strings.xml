@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">My Application</string>
+    <string name="reload">再読み込み</string>
+    <string name="reloading">再読み込みしています...</string>
+</resources>
