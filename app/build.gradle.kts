@@ -77,6 +77,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.8.0")
     implementation("androidx.media3:media3-ui:1.8.0")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
+    implementation("com.squareup.okhttp3:okhttp:5.1.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

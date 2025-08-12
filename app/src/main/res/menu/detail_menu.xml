@@ -11,4 +11,9 @@
         android:icon="@android:drawable/ic_menu_search"
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="ifRoom|collapseActionView" />
+    <item
+        android:id="@+id/action_write"
+        android:title="@string/write_mode"
+        android:icon="@android:drawable/ic_menu_edit"
+        app:showAsAction="ifRoom" />
 </menu>

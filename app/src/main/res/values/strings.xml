@@ -8,6 +8,22 @@
     <string name="search_hint">Enter search text...</string>
     <string name="no_results_found">No results found</string>
     <string name="search_results_format">%d/%d</string>
+    <string name="write_mode">書き込みモード</string>
+
+    <!-- New strings for comment dialog -->
+    <string name="add_comment_dialog_title">コメントを投稿</string>
+    <string name="hint_name">おなまえ</string>
+    <string name="hint_email">E-mail</string>
+    <string name="hint_subject">題名</string>
+    <string name="hint_comment">コメント</string>
+    <string name="button_send">送信</string>
+    <string name="button_cancel">キャンセル</string>
+
+    <!-- Strings for file attachment -->
+    <string name="button_select_file">ファイルを選択</string>
+    <string name="text_no_file_selected">ファイル未選択</string>
+    <string name="error_file_too_large_format">ファイルサイズが大きすぎます (最大 %.1f MB)</string>
+    <string name="label_attachment">添付ファイル</string>
 
     <!-- <string name="reload">Reload</string> -->
 </resources>
