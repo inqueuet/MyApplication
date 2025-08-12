@@ -27,6 +27,11 @@
             </intent-filter>
         </activity>
         <activity android:name=".DetailActivity" />
+        <activity
+            android:name=".BookmarkActivity"
+            android:label="ブックマーク管理"
+            android:parentActivityName=".MainActivity"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 
 </manifest>

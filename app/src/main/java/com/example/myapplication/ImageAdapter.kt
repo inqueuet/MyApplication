@@ -12,8 +12,14 @@ import coil.load
 
 class ImageAdapter : ListAdapter<ImageItem, ImageAdapter.ImageViewHolder>(DiffCallback()) {
 
-    // Click listener lambda
     var onItemClick: ((ImageItem) -> Unit)? = null
+    private var originalList: List<ImageItem> = emptyList() // フィルター前のオリジナルリスト
+
+    // オリジナルリストをセットし、表示を更新するメソッド
+    fun submitOriginalList(list: List<ImageItem>) {
+        originalList = list
+        submitList(list)
+    }
 
     class ImageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val imageView: ImageView = view.findViewById(R.id.imageView)
@@ -42,7 +48,6 @@ class ImageAdapter : ListAdapter<ImageItem, ImageAdapter.ImageViewHolder>(DiffCa
     override fun onBindViewHolder(holder: ImageViewHolder, position: Int) {
         val item = getItem(position)
         holder.bind(item)
-        // Set the click listener on the item's view
         holder.itemView.setOnClickListener {
             onItemClick?.invoke(item)
         }
@@ -50,7 +55,6 @@ class ImageAdapter : ListAdapter<ImageItem, ImageAdapter.ImageViewHolder>(DiffCa
 
     class DiffCallback : DiffUtil.ItemCallback<ImageItem>() {
         override fun areItemsTheSame(oldItem: ImageItem, newItem: ImageItem): Boolean {
-            // Use a unique identifier, like the detailUrl
             return oldItem.detailUrl == newItem.detailUrl
         }
 

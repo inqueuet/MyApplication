@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">My Application</string>
     <string name="reload">再読み込み</string>
-    <string name="reloading">再読み込みしています...</string>
+    <string name="reloading">再読み込み</string>
+    <!-- ... other strings ... -->
+    <string name="bookmark_management_title">ブックマーク管理</string>
 </resources>
