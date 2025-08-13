@@ -5,9 +5,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
+import com.example.myapplication.cache.DetailCacheManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.URL
 
 class DetailViewModel(application: Application) : AndroidViewModel(application) {
@@ -21,23 +24,38 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
     private val _isLoading = MutableLiveData<Boolean>()
     val isLoading: LiveData<Boolean> = _isLoading
 
-    fun fetchDetails(url: String) {
-        viewModelScope.launch {
-            _isLoading.value = true // 読み込み開始
-            try {
-                val document = NetworkClient.fetchDocument(getApplication(), url)
+    private val cacheManager = DetailCacheManager(application)
 
+    fun fetchDetails(url: String, forceRefresh: Boolean = false) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+
+            try {
+                if (!forceRefresh) {
+                    val cachedDetails = withContext(Dispatchers.IO) {
+                        cacheManager.loadDetails(url)
+                    }
+                    if (cachedDetails != null) {
+                        _detailContent.postValue(cachedDetails)
+                        _isLoading.value = false
+                        return@launch
+                    }
+                }
+
+                // ★ NetworkClient.fetchDocument を Dispatchers.IO で実行
+                val document = withContext(Dispatchers.IO) {
+                    NetworkClient.fetchDocument(getApplication(), url)
+                }
                 val contentBlocks = document.select("div.thre, table:has(td.rtd)")
 
-                // 先に全てのコンテンツ候補をリストアップする
                 val pendingContent = contentBlocks.flatMap { block ->
-                    val content = mutableListOf<Pair<String, Any>>() // type, data
+                    val content = mutableListOf<Pair<String, Any>>()
                     val mediaLink = block.select("a[target=_blank]").firstOrNull { a ->
                         val href = a.attr("href").lowercase()
                         href.endsWith(".png") || href.endsWith(".jpg") || href.endsWith(".jpeg") || href.endsWith(".gif") || href.endsWith(".webp") || href.endsWith(".webm") || href.endsWith(".mp4")
                     }
 
-                    // 1. テキスト部分
                     val textBlock = block.clone()
                     mediaLink?.let { link -> textBlock.select("a[href='${link.attr("href")}']").remove() }
                     val html = textBlock.selectFirst(".rtd")?.html() ?: ""
@@ -45,7 +63,6 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                         content.add("text" to html)
                     }
 
-                    // 2. メディア部分
                     mediaLink?.let { link ->
                         val href = link.attr("href").lowercase()
                         val absoluteUrl = URL(URL(url), href).toString()
@@ -61,34 +78,46 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                     content
                 }
 
-                // メディアファイルのプロンプトを非同期で並列取得
                 val deferredPrompts = pendingContent.map { (type, data) ->
                     if ((type == "image" || type == "video") && data is String) {
-                        async { MetadataExtractor.extract(data) }
+                        async {
+                            // ★ MetadataExtractor.extract を Dispatchers.IO で実行
+                            withContext(Dispatchers.IO) {
+                                MetadataExtractor.extract(data)
+                            }
+                        }
                     } else {
-                        async { null } // テキストやその他はnull
+                        async { null }
                     }
                 }
                 val prompts = deferredPrompts.awaitAll()
 
-                // 最終的なコンテンツリストを構築
-                val finalContentList = pendingContent.mapIndexed { index, (type, data) ->
-                    when(type) {
+                val finalContentList = pendingContent.mapIndexedNotNull { index, (type, data) ->
+                    when (type) {
                         "text" -> DetailContent.Text(data as String)
                         "image" -> DetailContent.Image(data as String, prompts[index])
                         "video" -> DetailContent.Video(data as String, prompts[index])
                         else -> null
                     }
-                }.filterNotNull()
+                }
 
                 _detailContent.postValue(finalContentList)
+                withContext(Dispatchers.IO) {
+                    cacheManager.saveDetails(url, finalContentList)
+                }
 
             } catch (e: Exception) {
                 _error.value = "詳細の取得に失敗しました: ${e.message}"
                 e.printStackTrace()
             } finally {
-                _isLoading.value = false // 読み込み終了
+                _isLoading.value = false
             }
+        }
+    }
+
+    fun invalidateCache(url: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            cacheManager.invalidateCache(url)
         }
     }
 }

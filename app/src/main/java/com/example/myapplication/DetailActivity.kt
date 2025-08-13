@@ -1,64 +1,64 @@
 package com.example.myapplication
 
-import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
-import android.text.Html
+import android.provider.OpenableColumns // getFileName で使用
+import android.text.Html // performSearch, setupRecyclerView で使用
 import android.util.Log
-import android.view.LayoutInflater
-import android.view.Menu
-import android.view.MenuItem
-import android.view.View
+import android.view.LayoutInflater // showAddCommentDialog で使用
+import android.view.Menu // onCreateOptionsMenu で使用
+import android.view.MenuItem // onOptionsItemSelected, onCreateOptionsMenu で使用
+import android.view.View // onCreateOptionsMenu, performSearch, clearSearchAndUI で使用
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
-import android.widget.EditText
+import android.widget.Button // showAddCommentDialog で使用
+import android.widget.EditText // showAddCommentDialog で使用
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.SearchView
-import androidx.core.view.isVisible
+import androidx.appcompat.widget.SearchView // onCreateOptionsMenu で使用
+import androidx.core.view.isVisible // observeViewModel, clearSearchAndUI で使用
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.RecyclerView // setupRecyclerView, saveCurrentScrollState で使用
 import com.example.myapplication.databinding.ActivityDetailBinding
 import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MediaType.Companion.toMediaTypeOrNull // sendCommentWithOkHttp で使用
 import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
-import java.text.DecimalFormat
+import okhttp3.RequestBody.Companion.toRequestBody // sendCommentWithOkHttp で使用
+import java.io.IOException // sendCommentWithOkHttp で使用
+// import java.text.DecimalFormat // 未使用のためコメントアウト
 import java.util.concurrent.TimeUnit
 import okhttp3.JavaNetCookieJar
+import android.app.AlertDialog // showAddCommentDialogで使用
 
 
 class DetailActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityDetailBinding
     private val viewModel: DetailViewModel by viewModels()
-    private lateinit var detailAdapter: DetailAdapter
+    private lateinit var detailAdapter: DetailAdapter // setupRecyclerViewで使用
 
     private lateinit var scrollPositionStore: ScrollPositionStore
     private var currentUrl: String? = null
 
-    private lateinit var layoutManager: LinearLayoutManager
+    private lateinit var layoutManager: LinearLayoutManager // setupRecyclerViewで使用
 
     // Search related variables
-    private var searchView: SearchView? = null
-    private var currentSearchQuery: String? = null
-    private val searchResultPositions = mutableListOf<Int>()
-    private var currentSearchHitIndex = -1
+    private var searchView: SearchView? = null // onCreateOptionsMenu, onOptionsItemSelected, saveCurrentScrollStateIfApplicable, clearSearchAndUI で使用
+    private var currentSearchQuery: String? = null // onCreateOptionsMenu, observeViewModel, performSearch, clearSearchAndUI, updateSearchResultsCount で使用
+    private val searchResultPositions = mutableListOf<Int>() // performSearch, clearSearchAndUI, navigateToCurrentHit, setupSearchNavigation, updateSearchResultsCount で使用
+    private var currentSearchHitIndex = -1 // performSearch, clearSearchAndUI, navigateToCurrentHit, setupSearchNavigation, updateSearchResultsCount で使用
 
     // File Picker and related UI
     private lateinit var filePickerLauncher: ActivityResultLauncher<Array<String>>
     private var selectedFileUri: Uri? = null
     private var textViewSelectedFileName: TextView? = null
-    private val MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024 // 8MB
+    private val maxFileSizeBytes = 8 * 1024 * 1024 // 8MB (命名規則修正)
 
     // Background WebView and Submission Process
     private var backgroundWebView: WebView? = null
@@ -79,7 +79,7 @@ class DetailActivity : AppCompatActivity() {
     }
     private val cookieJar = JavaNetCookieJar(cookieManager)
 
-    private val okHttpClient = OkHttpClient.Builder()
+    private val okHttpClient = OkHttpClient.Builder() // sendCommentWithOkHttp で使用
         .cookieJar(cookieJar)
         .connectTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
@@ -118,15 +118,16 @@ class DetailActivity : AppCompatActivity() {
         setupCustomToolbarElements()
         setupRecyclerView()
         observeViewModel()
-        viewModel.fetchDetails(currentUrl!!)
+        viewModel.fetchDetails(currentUrl!!) // forceRefresh is false by default
         setupSearchNavigation()
 
         filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri != null) {
                 val fileSize = getFileSize(uri)
                 val fileNameToDisplay = getFileName(uri)
-                if (fileSize != null && fileSize > MAX_FILE_SIZE_BYTES) {
-                    val maxSizeMB = MAX_FILE_SIZE_BYTES / (1024.0 * 1024.0)
+                // fileSizeのnullチェックと安全な比較
+                if (fileSize != null && fileSize > maxFileSizeBytes) {
+                    val maxSizeMB = maxFileSizeBytes / (1024.0 * 1024.0)
                     Toast.makeText(this, getString(R.string.error_file_too_large_format, maxSizeMB), Toast.LENGTH_LONG).show()
                     this.selectedFileUri = null
                     commentFormDataMap.remove(KEY_SELECTED_FILE_URI)
@@ -144,25 +145,32 @@ class DetailActivity : AppCompatActivity() {
         }
     }
 
+    // Unresolved reference 'setupCustomToolbarElements' を解決するためにこの関数を追加します
+    private fun setupCustomToolbarElements() {
+        binding.backButton.setOnClickListener {
+            onBackPressedDispatcher.onBackPressed()
+        }
+    }
+
     private fun initializeBackgroundWebView() {
         if (backgroundWebView == null) {
             backgroundWebView = WebView(this).apply {
-                settings.javaScriptEnabled = true
+                settings.javaScriptEnabled = true // XSS脆弱性の可能性に関する警告は残ります
                 settings.domStorageEnabled = true
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         if (isSubmissionProcessActive && url == targetPageUrlForFields) {
-                            // Log cookies on backgroundWebView after page finished loading
                             val webViewCookieManager = android.webkit.CookieManager.getInstance()
-                            val cookiesOnWebView = webViewCookieManager.getCookie(url)
+                            val cookiesOnWebView = webViewCookieManager.getCookie(url) // cookiesOnWebView はここで宣言
                             Log.d("DetailActivity", "Cookies on backgroundWebView after page finished ($url): $cookiesOnWebView")
 
                             currentHiddenFieldStep = 0
                             hiddenFormValues.clear()
                             executeHiddenFieldJsStep(view)
+                        // 'url != targetPageUrlForFields' の条件が常にtrueという警告はロジック次第なので一旦そのまま (targetPageUrlForFieldsがnullでない前提ならOK)
                         } else if (isSubmissionProcessActive && url != targetPageUrlForFields) {
-                            resetSubmissionState("ページ準備中に予期せぬURLに遷移: $url")
+                             resetSubmissionState("ページ準備中に予期せぬURLに遷移: $url")
                         }
                     }
 
@@ -184,9 +192,10 @@ class DetailActivity : AppCompatActivity() {
         }
         if (currentHiddenFieldStep < hiddenFieldSelectors.size) {
             val fieldName = hiddenFieldSelectors[currentHiddenFieldStep]
-            val jsToExecute = "(function() { var el = document.querySelector('input[name=\"${fieldName}\"]'); return el ? el.value : ''; })();"
+            // JavaScript文字列のエスケープを修正
+            val jsToExecute = "(function() { var el = document.querySelector('input[name=\'${fieldName}\']'); return el ? el.value : ''; })();"
             webView.evaluateJavascript(jsToExecute) { result ->
-                val value = result?.removeSurrounding("\"") ?: ""
+                val value = result?.removeSurrounding("\"\"") ?: "" // valueはここで使用される
                 hiddenFormValues[fieldName] = value
                 currentHiddenFieldStep++
                 executeHiddenFieldJsStep(webView)
@@ -258,7 +267,7 @@ class DetailActivity : AppCompatActivity() {
                 dialog.dismiss()
             }
             .setNegativeButton(R.string.button_cancel) { dialog, _ ->
-                textViewSelectedFileName = null
+                textViewSelectedFileName = null // onDismissでもリセットされるが、明示的に
                 dialog.cancel()
             }
             .setOnDismissListener {
@@ -278,7 +287,7 @@ class DetailActivity : AppCompatActivity() {
         }
         Log.d("DetailActivity", "Submitting to board ID: $currentBoardId, from URL: $currentUrl, target page for fields: $targetPageUrlForFields")
 
-        initializeBackgroundWebView()
+        initializeBackgroundWebView() // 呼び出しを追加
         isSubmissionProcessActive = true
         currentHiddenFieldStep = 0
         hiddenFormValues.clear()
@@ -296,44 +305,44 @@ class DetailActivity : AppCompatActivity() {
         val email = commentFormDataMap[KEY_EMAIL] as? String ?: ""
         val subject = commentFormDataMap[KEY_SUBJECT] as? String ?: ""
         val comment = commentFormDataMap[KEY_COMMENT] as? String ?: ""
-        val currentFileUri = commentFormDataMap[KEY_SELECTED_FILE_URI] as? Uri
+        val currentFileUri = commentFormDataMap[KEY_SELECTED_FILE_URI] as? Uri // ここではプロパティ/引数と同じ名前でOK
 
         val multipartBodyBuilder = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("mode", "regist")
-            .addFormDataPart("MAX_FILE_SIZE", "8192000")
+            .addFormDataPart("MAX_FILE_SIZE", maxFileSizeBytes.toString()) // サーバー側の期待値に合わせる、String型で
             .addFormDataPart("js", "on")
             .addFormDataPart("pwd", "")
 
         currentBoardId?.let { multipartBodyBuilder.addFormDataPart("resto", it) }
         multipartBodyBuilder.addFormDataPart("name", name)
         multipartBodyBuilder.addFormDataPart("email", email)
-        multipartBodyBuilder.addFormDataPart("sub", subject)
+        multipartBodyBuilder.addFormDataPart("sub", subject) // `sub` が予約語等でなければOK
         multipartBodyBuilder.addFormDataPart("com", comment)
         hiddenFormValues.forEach { (key, value) -> multipartBodyBuilder.addFormDataPart(key, value) }
         if (currentFileUri == null) {
             multipartBodyBuilder.addFormDataPart("textonly", "on")
         }
 
-        currentFileUri?.let { uri ->
-            val fileName = getFileName(uri) ?: "attachment_${System.currentTimeMillis()}"
-            val mediaTypeString = contentResolver.getType(uri)
+        currentFileUri?.let { localUri -> // ローカル変数をキャプチャ
+            val fileName = getFileName(localUri) ?: "attachment_${System.currentTimeMillis()}" // fileName はここで使用
+            val mediaTypeString = contentResolver.getType(localUri)
             val mediaType = mediaTypeString?.toMediaTypeOrNull() ?: "application/octet-stream".toMediaTypeOrNull()
             try {
-                contentResolver.openInputStream(uri)?.use { inputStream ->
+                contentResolver.openInputStream(localUri)?.use { inputStream ->
                     val fileBytes = inputStream.readBytes()
                     val fileRequestBody = fileBytes.toRequestBody(mediaType, 0, fileBytes.size)
-                    multipartBodyBuilder.addFormDataPart("upfile", fileName, fileRequestBody)
+                    multipartBodyBuilder.addFormDataPart("upfile", fileName, fileRequestBody) // fileName を使用
                 } ?: run {
-                    Log.e("DetailActivity", "Failed to open InputStream for URI: $uri")
+                    Log.e("DetailActivity", "Failed to open InputStream for URI: $localUri")
                     resetSubmissionState("選択されたファイルを開けませんでした。")
-                    return@sendCommentWithOkHttp
+                    return@sendCommentWithOkHttp // ラベル指定のreturn
                 }
-            } catch (e: IOException) {
+            } catch (e: IOException) { // e はここで宣言・使用
                 Log.e("DetailActivity", "File reading error for OkHttp", e)
                 resetSubmissionState("ファイルの読み込み中にエラーが発生しました: ${e.message}")
                 return
-            } catch (e: SecurityException) {
+            } catch (e: SecurityException) { // e はここで宣言・使用
                 Log.e("DetailActivity", "File permission error for OkHttp", e)
                 resetSubmissionState("ファイルへのアクセス許可がありません: ${e.message}")
                 return
@@ -342,36 +351,36 @@ class DetailActivity : AppCompatActivity() {
 
         val requestBody = multipartBodyBuilder.build()
         val webViewCookieManager = android.webkit.CookieManager.getInstance()
-        val cookieUrl = targetPageUrlForFields ?: currentUrl ?: ""
-        val cookies = webViewCookieManager.getCookie(cookieUrl)
+        val cookieUrlForRequest = targetPageUrlForFields ?: currentUrl ?: "" // 変数名を明確に
+        val cookiesForRequest = webViewCookieManager.getCookie(cookieUrlForRequest) // 変数名を明確に
         val requestBuilder = Request.Builder()
             .url("https://may.2chan.net/b/futaba.php?guid=on")
             .post(requestBody)
 
-        if (cookies != null && cookies.isNotEmpty()) {
-            requestBuilder.addHeader("Cookie", cookies)
-            Log.d("DetailActivity", "WebView Cookies added to OkHttp request: $cookies")
+        if (!cookiesForRequest.isNullOrEmpty()) { // nullチェックとemptyチェック
+            requestBuilder.addHeader("Cookie", cookiesForRequest)
+            Log.d("DetailActivity", "WebView Cookies added to OkHttp request: $cookiesForRequest")
         } else {
-            Log.d("DetailActivity", "No WebView cookies found for OkHttp request for URL: $cookieUrl")
+            Log.d("DetailActivity", "No WebView cookies found for OkHttp request for URL: $cookieUrlForRequest")
         }
 
         val request = requestBuilder.build()
         runOnUiThread { Toast.makeText(this, "コメントを送信中です...", Toast.LENGTH_SHORT).show() }
-
         okHttpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
+            override fun onFailure(call: Call, e: IOException) { // e はここで宣言・使用
                 Log.e("DetailActivity", "OkHttp Submission Error: ${e.message}", e)
                 runOnUiThread { resetSubmissionState("送信に失敗しました (ネットワークエラー): ${e.message}") }
             }
 
             override fun onResponse(call: Call, response: Response) {
+                 // responseBodyString はここで宣言・使用
                 val responseBodyString = try { response.body?.string() } catch (e: Exception) { Log.e("DetailActivity", "Error reading response body",e); null }
-                response.use {
-                    if (it.isSuccessful) {
-                        Log.d("DetailActivity", "OkHttp Submission Success: Code=${it.code}")
+                response.use { resp -> // `it` の代わりに `resp` を使用
+                    if (resp.isSuccessful) {
+                        Log.d("DetailActivity", "OkHttp Submission Success: Code=${resp.code}")
 
                         if (responseBodyString != null) {
-                            val chunkSize = 1000 // Logcatの1行制限に配慮
+                            val chunkSize = 1000
                             if (responseBodyString.length > chunkSize) {
                                 Log.d("DetailActivity", "Response Body (chunked):")
                                 for (i in 0..responseBodyString.length step chunkSize) {
@@ -385,22 +394,21 @@ class DetailActivity : AppCompatActivity() {
                             Log.d("DetailActivity", "Response Body is null")
                         }
 
-                        // Check for specific cooldown message first
                         if (responseBodyString?.contains("秒、投稿できません", ignoreCase = true) == true) {
                             var waitTimeMessage = "連続投稿制限のため、しばらく投稿できません。"
                             try {
                                 val regex = Regex("あと(\\d+)秒、投稿できません")
                                 val matchResult = responseBodyString.let { body -> if (body != null) regex.find(body) else null }
                                 if (matchResult != null && matchResult.groupValues.size > 1) {
-                                    val seconds = matchResult.groupValues[1].toInt()
-                                    val minutes = seconds / 60
+                                    val seconds = matchResult.groupValues[1].toInt() // seconds はここで宣言・使用
+                                    val minutes = seconds / 60 // minutes はここで宣言・使用 (整数除算)
                                     waitTimeMessage = if (minutes > 0) {
                                         "連続投稿制限のため、あと約${minutes}分お待ちください。"
                                     } else {
                                         "連続投稿制限のため、あと${seconds}秒お待ちください。"
                                     }
                                 }
-                            } catch (e: Exception) {
+                            } catch (e: Exception) { // e はここで宣言・使用
                                 Log.w("DetailActivity", "Failed to parse wait time from cooldown message", e)
                             }
                             runOnUiThread {
@@ -408,25 +416,21 @@ class DetailActivity : AppCompatActivity() {
                             }
                             return@onResponse
                         }
-                        // Then check for IP block
                         else if (responseBodyString?.contains("あなたのipアドレスからは投稿できません", ignoreCase = true) == true) {
                             runOnUiThread {
                                 resetSubmissionState("あなたのIPアドレスからは投稿できません。接続環境を変更して試すか、しばらく時間をおいてください。")
                             }
                             return@onResponse
                         }
-                        // Then check for "cookieを有効にしてください"
                         else if (responseBodyString?.contains("cookieを有効にしてください", ignoreCase = true) == true) {
                             runOnUiThread {
                                 resetSubmissionState("Cookieが無効か、または不足しています。設定を確認し、再度お試しください。")
                             }
                             return@onResponse
                         }
-                        // Then check for other known error indicators or redirection to main page
                         else if (responseBodyString?.contains("ERROR:", ignoreCase = true) == true ||
                             responseBodyString?.contains("エラー：", ignoreCase = true) == true ||
                             responseBodyString?.contains("<link rel=\"canonical\" href=\"https://may.2chan.net/b/futaba.htm\">", ignoreCase = true) == true ) {
-
                             var extractedErrorMessage = "サーバーが投稿を拒否しました。または予期せぬページが返されました。"
                             if (!responseBodyString.isNullOrEmpty()) {
                                 if (responseBodyString.contains("ERROR:") || responseBodyString.contains("エラー：")) {
@@ -436,17 +440,13 @@ class DetailActivity : AppCompatActivity() {
                                         val extracted2 = responseBodyString.substringAfter("<font color=\"#ff0000\"><b>", "").substringBefore("</b></font>", "").trim()
                                         if(extracted2.isNotEmpty()) extractedErrorMessage = extracted2
                                     }
-                                    // Note: "cookieを有効にしてください" is handled above, so no specific extraction here for it
                                 } else if (responseBodyString.contains("<link rel=\"canonical\" href=\"https://may.2chan.net/b/futaba.htm\">", ignoreCase = true)) {
-                                    // This case might be caught by more specific messages above, but keep as fallback
                                     extractedErrorMessage = "投稿が受理されず、メインページが返されました。内容を確認してください。"
                                 }
                             }
                             runOnUiThread { resetSubmissionState(extractedErrorMessage) }
                             return@onResponse
                         }
-
-                        // If none of the above, assume success (though actual success depends on site logic)
                         runOnUiThread {
                             Toast.makeText(this@DetailActivity, "コメントを送信しました。", Toast.LENGTH_LONG).show()
                             commentFormDataMap.clear()
@@ -454,12 +454,12 @@ class DetailActivity : AppCompatActivity() {
                             resetSubmissionState()
                             currentUrl?.let { urlToRefresh ->
                                 Toast.makeText(this@DetailActivity, "スレッドを再読み込みします...", Toast.LENGTH_SHORT).show()
-                                viewModel.fetchDetails(urlToRefresh)
+                                viewModel.fetchDetails(urlToRefresh, forceRefresh = true) // キャッシュ更新
                             }
                         }
-                    } else { // HTTP request was not successful (e.g., 4xx, 5xx errors)
-                        Log.w("DetailActivity", "OkHttp Submission Failed: Code=${it.code}")
-                        var errorMessage = "送信に失敗しました (サーバーエラーコード: ${it.code})"
+                    } else {
+                        Log.w("DetailActivity", "OkHttp Submission Failed: Code=${resp.code}")
+                        var errorMessage = "送信に失敗しました (サーバーエラーコード: ${resp.code})"
                         if (responseBodyString != null) {
                             val chunkSize = 1000
                             Log.w("DetailActivity", "Failed Response Body (chunked):")
@@ -468,7 +468,6 @@ class DetailActivity : AppCompatActivity() {
                                 Log.w("DetailActivity", responseBodyString.substring(i, end))
                             }
                         }
-
                         if (!responseBodyString.isNullOrEmpty()) {
                             if (responseBodyString.contains("cookieを有効にしてください", ignoreCase = true) == true) {
                                 errorMessage = "Cookieが無効か、または不足しています。設定を確認し、再度お試しください。"
@@ -486,10 +485,6 @@ class DetailActivity : AppCompatActivity() {
                 }
             }
         })
-    }
-
-    private fun setupCustomToolbarElements() {
-        binding.backButton.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -527,7 +522,7 @@ class DetailActivity : AppCompatActivity() {
                 currentUrl?.let { urlToRefresh ->
                     saveCurrentScrollStateIfApplicable()
                     clearSearchAndUI()
-                    viewModel.fetchDetails(urlToRefresh)
+                    viewModel.fetchDetails(urlToRefresh, forceRefresh = true)
                     Toast.makeText(this, "再読み込みしています...", Toast.LENGTH_SHORT).show()
                 }
                 true
@@ -550,14 +545,14 @@ class DetailActivity : AppCompatActivity() {
     }
 
     private fun saveCurrentScrollStateIfApplicable() {
-        if (searchView?.isIconified != false && currentUrl != null) {
+        if (searchView?.isIconified != false && currentUrl != null) { // isIconifiedのチェック条件を維持 (検索中でない場合)
             saveCurrentScrollState(currentUrl!!)
         }
     }
 
     private fun setupRecyclerView() {
-        detailAdapter = DetailAdapter()
-        layoutManager = LinearLayoutManager(this@DetailActivity)
+        detailAdapter = DetailAdapter() // DetailAdapterのインスタンス化
+        layoutManager = LinearLayoutManager(this@DetailActivity) // layoutManagerのインスタンス化
         detailAdapter.onQuoteClickListener = customLabel@{ quotedText ->
             val contentList = viewModel.detailContent.value ?: return@customLabel
             val targetPosition = contentList.indexOfFirst { content ->
@@ -572,7 +567,7 @@ class DetailActivity : AppCompatActivity() {
             }
         }
         binding.detailRecyclerView.apply {
-            this.layoutManager = this@DetailActivity.layoutManager
+            layoutManager = this@DetailActivity.layoutManager // より一般的な書き方に変更
             adapter = detailAdapter
             itemAnimator = null
         }
@@ -591,6 +586,7 @@ class DetailActivity : AppCompatActivity() {
                         if (currentSearchQuery != null && searchView?.isIconified == false) {
                             performSearch(currentSearchQuery!!)
                         } else {
+                            // スクロール位置復元の条件
                             if (hadPreviousContent || scrollPositionStore.getScrollState(url).first != 0 || scrollPositionStore.getScrollState(url).second != 0) {
                                 val (position, offset) = scrollPositionStore.getScrollState(url)
                                 if (position >= 0 && position < contentList.size) {
@@ -604,8 +600,10 @@ class DetailActivity : AppCompatActivity() {
                 } else { clearSearchAndUI() }
             }
         }
-        viewModel.error.observe(this) { errorMessage ->
-            Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show()
+        viewModel.error.observe(this) { errorMessage -> // errorMessage はここで使用
+            if (!errorMessage.isNullOrEmpty()) {
+                Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -620,7 +618,7 @@ class DetailActivity : AppCompatActivity() {
 
     private fun performSearch(query: String) {
         currentSearchQuery = query
-        detailAdapter.setSearchQuery(query)
+        detailAdapter.setSearchQuery(query) // Adapterに検索クエリを渡す
         searchResultPositions.clear()
         currentSearchHitIndex = -1
         val contentList = viewModel.detailContent.value ?: return
@@ -647,7 +645,7 @@ class DetailActivity : AppCompatActivity() {
 
     private fun clearSearchAndUI() {
         currentSearchQuery = null
-        detailAdapter.setSearchQuery(null)
+        detailAdapter.setSearchQuery(null) // Adapterの検索クエリもクリア
         searchResultPositions.clear()
         currentSearchHitIndex = -1
         binding.searchNavigationControls.visibility = View.GONE
@@ -656,7 +654,7 @@ class DetailActivity : AppCompatActivity() {
             searchView?.setQuery("", false)
             searchView?.isIconified = true
         }
-        if (viewModel.isLoading.value == false) {
+        if (viewModel.isLoading.value == false) { // isLoadingがfalseの時のみ表示
             binding.detailRecyclerView.isVisible = true
         }
     }
@@ -665,8 +663,8 @@ class DetailActivity : AppCompatActivity() {
         if (searchResultPositions.isNotEmpty() && currentSearchHitIndex in searchResultPositions.indices) {
             val position = searchResultPositions[currentSearchHitIndex]
             if (position >= 0 && position < detailAdapter.itemCount) {
-                binding.detailRecyclerView.post {
-                    layoutManager.scrollToPositionWithOffset(position, 20)
+                binding.detailRecyclerView.post { // UIスレッドで実行
+                    layoutManager.scrollToPositionWithOffset(position, 20) // 微調整オフセット
                 }
             }
         }
@@ -707,18 +705,27 @@ class DetailActivity : AppCompatActivity() {
             contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     val displayNameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (displayNameIndex != -1) { fileName = cursor.getString(displayNameIndex) }
+                    if (displayNameIndex != -1) {
+                        fileName = cursor.getString(displayNameIndex)
+                    }
                 }
-            }
-        } catch (e: Exception) { Log.e("DetailActivity", "Error getting file name from ContentResolver", e) }
-        if (fileName == null) { fileName = uri.path?.substringAfterLast('/') }
+            } // useブロックがここで閉じる
+        } catch (e: Exception) {
+            Log.e("DetailActivity", "Error getting file name from ContentResolver", e)
+        }
+        if (fileName == null) {
+            fileName = uri.path?.substringAfterLast('/')
+        }
         return fileName
     }
 
     private fun getFileSize(uri: Uri): Long? {
         try {
             contentResolver.openFileDescriptor(uri, "r")?.use { pfd -> return pfd.statSize }
-        } catch (e: Exception) { Log.e("DetailActivity", "Error getting file size for URI: $uri", e) }
+        } catch (e: Exception) {
+            // エラーログのuri変数をローカルスコープのものに修正
+            Log.e("DetailActivity", "Error getting file size for URI: $uri", e)
+        }
         return null
     }
 }

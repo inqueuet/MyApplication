@@ -72,6 +72,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp-urlconnection:5.1.0")
     implementation("com.google.code.gson:gson:2.13.1")
     implementation("org.jsoup:jsoup:1.21.1")
+    implementation("com.google.code.gson:gson:2.13.1")
+    // implementation("com.google.code.gson:gson-extras:2.10.1") // この行を削除しました
 
     // Media3 (ExoPlayer) のライブラリを追加
     implementation("androidx.media3:media3-exoplayer:1.8.0")
