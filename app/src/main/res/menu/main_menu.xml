@@ -3,11 +3,13 @@
 
     <item
         android:id="@+id/action_reload"
+        android:icon="@drawable/ic_refresh"
         android:title="@string/reloading"
         app:showAsAction="ifRoom" />
 
     <item
         android:id="@+id/action_select_bookmark"
+        android:icon="@drawable/ic_baseline_bookmark_24"
         android:title="ブックマーク選択"
         app:showAsAction="ifRoom" />
 
@@ -18,13 +20,14 @@
 
     <item
         android:id="@+id/action_search"
-        android:icon="@android:drawable/ic_menu_search"
+        android:icon="@drawable/ic_menu_search"
         android:title="検索"
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="ifRoom|collapseActionView" />
 
     <item
         android:id="@+id/action_image_edit"
+        android:icon="@drawable/action_image_edit"
         android:title="画像編集"
         app:showAsAction="never" />
 </menu>
