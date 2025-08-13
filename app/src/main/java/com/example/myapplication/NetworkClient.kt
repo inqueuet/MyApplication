@@ -1,60 +1,89 @@
 package com.example.myapplication
 
 import android.content.Context
+import android.util.Log // ★ Logをインポート
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jsoup.Connection
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import java.io.IOException
 
 object NetworkClient {
 
     suspend fun fetchDocument(context: Context, url: String): Document {
-        // IOスレッドでネットワーク処理を実行
         return withContext(Dispatchers.IO) {
             val cookieStore = CookieStore(context.applicationContext)
             val storedCookies = cookieStore.loadCookies()
-
-            // 保存されたCookieを付けてリクエストを実行
             val response = Jsoup.connect(url)
                 .cookies(storedCookies)
                 .method(Connection.Method.GET)
                 .execute()
-
-            // レスポンスから新しいCookieを取得して保存
             val newCookies = response.cookies()
             if (newCookies.isNotEmpty()) {
                 cookieStore.saveCookies(newCookies)
             }
-
-            // HTMLドキュメントをパースして返す
             response.parse()
         }
     }
 
-    // ★★★ ここから新しい関数を追加 ★★★
-    /**
-     * 設定値をサーバーにPOST送信して、返却されたCookieを保存する
-     */
+    suspend fun postSodaNe(context: Context, resNum: String, referer: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "https://may.2chan.net/sd.php?b.$resNum"
+                Log.d("NetworkClient", "postSodaNe: Attempting to POST to URL: $url with referer: $referer")
+                val cookieStore = CookieStore(context.applicationContext)
+                val storedCookies = cookieStore.loadCookies()
+                Log.d("NetworkClient", "postSodaNe: Cookies being sent: $storedCookies")
+
+                val response = Jsoup.connect(url)
+                    .cookies(storedCookies)
+                    .header("accept", "*/*")
+                    .header("accept-encoding", "gzip, deflate, br, zstd")
+                    .header("accept-language", "ja,en-US;q=0.9,en;q=0.8")
+                    .header("connection", "keep-alive")
+                    .header("host", "may.2chan.net")
+                    .header("referer", referer)
+                    .method(Connection.Method.POST)
+                    .ignoreContentType(true) 
+                    .execute()
+                
+                Log.d("NetworkClient", "postSodaNe: Response status code: ${response.statusCode()}")
+                Log.d("NetworkClient", "postSodaNe: Response body: ${response.body()}")
+                
+                // ステータスコードが2xx範囲内であれば成功とみなす
+                if (response.statusCode() in 200..299) {
+                     true
+                } else {
+                    Log.w("NetworkClient", "postSodaNe: Failed with status ${response.statusCode()} and body: ${response.body()}")
+                    false
+                }
+            } catch (e: IOException) {
+                Log.e("NetworkClient", "postSodaNe: IOException: ${e.message}", e)
+                e.printStackTrace()
+                false
+            } catch (e: Exception) {
+                Log.e("NetworkClient", "postSodaNe: General Exception: ${e.message}", e)
+                e.printStackTrace()
+                false
+            }
+        }
+    }
+
     suspend fun applySettings(context: Context, settings: Map<String, String>) {
         withContext(Dispatchers.IO) {
             val settingsUrl = "https://may.2chan.net/b/futaba.php?mode=catset"
             val cookieStore = CookieStore(context.applicationContext)
             val storedCookies = cookieStore.loadCookies()
-
-            // 現在のCookieを付けて、設定値をPOSTで送信
             val response = Jsoup.connect(settingsUrl)
                 .cookies(storedCookies)
-                .data(settings) // 設定値をフォームデータとして追加
+                .data(settings)
                 .method(Connection.Method.POST)
                 .execute()
-
-            // サーバーから返された新しいCookieを保存
             val newCookies = response.cookies()
             if (newCookies.isNotEmpty()) {
                 cookieStore.saveCookies(newCookies)
             }
         }
     }
-    // ★★★ ここまで追加 ★★★
 }

@@ -397,7 +397,7 @@ class DetailActivity : AppCompatActivity() {
                         if (responseBodyString?.contains("秒、投稿できません", ignoreCase = true) == true) {
                             var waitTimeMessage = "連続投稿制限のため、しばらく投稿できません。"
                             try {
-                                val regex = Regex("""あと(\d+)秒、投稿できません""")
+                                val regex = Regex("""あと(\\d+)秒、投稿できません""")
                                 val matchResult = responseBodyString.let { body -> if (body != null) regex.find(body) else null }
                                 if (matchResult != null && matchResult.groupValues.size > 1) {
                                     val seconds = matchResult.groupValues[1].toInt() // seconds はここで宣言・使用
@@ -576,6 +576,11 @@ class DetailActivity : AppCompatActivity() {
                 Toast.makeText(this, "引用元が見つかりません: $quotedText", Toast.LENGTH_SHORT).show()
             }
         }
+        // ★★★ ここから「そうだね」リスナーを設定 ★★★
+        detailAdapter.onSodaNeClickListener = { resNum ->
+            viewModel.postSodaNe(resNum)
+        }
+        // ★★★ ここまで追加 ★★★
         binding.detailRecyclerView.apply {
             layoutManager = this@DetailActivity.layoutManager // より一般的な書き方に変更
             adapter = detailAdapter

@@ -1,6 +1,7 @@
 package com.example.myapplication
 
 import android.app.Application
+import android.util.Log // ★ Logをインポート
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -25,9 +26,11 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
     val isLoading: LiveData<Boolean> = _isLoading
 
     private val cacheManager = DetailCacheManager(application)
+    private var currentUrl: String? = null // ★ 現在表示しているスレッドのURLを保持
 
     fun fetchDetails(url: String, forceRefresh: Boolean = false) {
         viewModelScope.launch {
+            this@DetailViewModel.currentUrl = url // ★ URLを保存
             _isLoading.value = true
             _error.value = null
 
@@ -126,4 +129,43 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
             cacheManager.invalidateCache(url)
         }
     }
+
+    // ★★★ ここから新しい関数を追加 ★★★
+    /**
+     * 「そうだね」を投稿する
+     * @param resNum レス番号
+     */
+    fun postSodaNe(resNum: String) {
+        val url = currentUrl
+        if (url == null) {
+            _error.value = "「そうだね」の投稿に失敗しました: 対象のURLが不明です。"
+            _isLoading.value = false // ★ エラー時にもisLoadingをfalseに
+            return
+        }
+
+        Log.d("DetailViewModel", "postSodaNe called. resNum: $resNum, currentUrl: $url")
+
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            try {
+                Log.d("DetailViewModel", "Calling NetworkClient.postSodaNe with resNum: $resNum, referer: $url")
+                val success = NetworkClient.postSodaNe(getApplication(), resNum, url)
+                Log.d("DetailViewModel", "NetworkClient.postSodaNe result: $success")
+                if (success) {
+                    // 成功したら現在のスレッドを強制再読み込みして表示を更新
+                    fetchDetails(url, forceRefresh = true)
+                } else {
+                    _error.value = "「そうだね」の投稿に失敗しました。"
+                    _isLoading.value = false  // ★ 失敗時にもisLoadingをfalseに
+                }
+            } catch (e: Exception) {
+                Log.e("DetailViewModel", "Error in postSodaNe: ${e.message}", e)
+                _error.value = "「そうだね」の投稿中にエラーが発生しました: ${e.message}"
+                _isLoading.value = false // ★ 例外発生時にもisLoadingをfalseに
+            }
+            // fetchDetailsが成功した場合、その中でisLoadingはfalseにされる
+        }
+    }
+    // ★★★ ここまで追加 ★★★
 }
