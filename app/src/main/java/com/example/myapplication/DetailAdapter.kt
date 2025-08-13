@@ -36,6 +36,10 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
     var onQuoteClickListener: ((quotedText: String) -> Unit)? = null
     private var currentSearchQuery: String? = null
 
+    // Pattern to detect file names like xxx.jpg, xxx.mp4, etc.
+    private val fileNamePattern = Pattern.compile("\\b([a-zA-Z0-9_.-]+\\.(?:jpg|jpeg|png|gif|mp4|webm|mov|avi|flv|mkv))\\b", Pattern.CASE_INSENSITIVE)
+
+
     fun setSearchQuery(query: String?) {
         val oldQuery = currentSearchQuery
         currentSearchQuery = query
@@ -69,10 +73,19 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         return when (viewType) {
             VIEW_TYPE_TEXT -> TextViewHolder(
                 LayoutInflater.from(parent.context).inflate(R.layout.detail_item_text, parent, false),
-                onQuoteClickListener
+                onQuoteClickListener,
+                fileNamePattern // Pass pattern
             )
-            VIEW_TYPE_IMAGE -> ImageViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.detail_item_image, parent, false))
-            VIEW_TYPE_VIDEO -> VideoViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.detail_item_video, parent, false))
+            VIEW_TYPE_IMAGE -> ImageViewHolder(
+                LayoutInflater.from(parent.context).inflate(R.layout.detail_item_image, parent, false),
+                onQuoteClickListener,
+                fileNamePattern // Pass pattern
+            )
+            VIEW_TYPE_VIDEO -> VideoViewHolder(
+                LayoutInflater.from(parent.context).inflate(R.layout.detail_item_video, parent, false),
+                onQuoteClickListener,
+                fileNamePattern // Pass pattern
+            )
             else -> throw IllegalArgumentException("Invalid view type")
         }
     }
@@ -80,54 +93,79 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = getItem(position)) {
             is DetailContent.Text -> (holder as TextViewHolder).bind(item, currentSearchQuery)
-            is DetailContent.Image -> (holder as ImageViewHolder).bind(item, currentSearchQuery) // Pass query
-            is DetailContent.Video -> (holder as VideoViewHolder).bind(item, currentSearchQuery) // Pass query
+            is DetailContent.Image -> (holder as ImageViewHolder).bind(item, currentSearchQuery)
+            is DetailContent.Video -> (holder as VideoViewHolder).bind(item, currentSearchQuery)
         }
     }
 
     class TextViewHolder(
         view: View,
-        private val onQuoteClickListener: ((quotedText: String) -> Unit)?
+        private val onQuoteClickListener: ((quotedText: String) -> Unit)?,
+        private val fileNamePattern: Pattern
     ) : RecyclerView.ViewHolder(view) {
         private val textView: TextView = view.findViewById(R.id.detailTextView)
 
         fun bind(item: DetailContent.Text, searchQuery: String?) {
             val spannedFromHtml = Html.fromHtml(item.htmlContent, Html.FROM_HTML_MODE_COMPACT)
             val spannableBuilder = SpannableStringBuilder(spannedFromHtml)
+            val contentString = spannedFromHtml.toString()
 
-            val pattern = Pattern.compile("^>(.+)$", Pattern.MULTILINE)
-            val matcher = pattern.matcher(spannedFromHtml.toString())
-
-            while (matcher.find()) {
-                val quoteText = matcher.group(1)?.trim()
+            // Handle standard quotes like >quoted text
+            val quotePattern = Pattern.compile("^>(.+)$", Pattern.MULTILINE)
+            val quoteMatcher = quotePattern.matcher(contentString)
+            while (quoteMatcher.find()) {
+                val quoteText = quoteMatcher.group(1)?.trim()
                 if (quoteText != null) {
-                    val start = matcher.start()
-                    val end = matcher.end()
+                    val start = quoteMatcher.start()
+                    val end = quoteMatcher.end()
                     val clickableSpan = object : ClickableSpan() {
                         override fun onClick(widget: View) {
                             onQuoteClickListener?.invoke(quoteText)
                         }
                         override fun updateDrawState(ds: TextPaint) {
                             super.updateDrawState(ds)
-                            ds.isUnderlineText = false
+                            ds.isUnderlineText = false // No underline for quotes
                         }
                     }
-                    spannableBuilder.setSpan(clickableSpan, start, end, SpannableStringBuilder.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    spannableBuilder.setSpan(clickableSpan, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
             }
 
+            // Handle file name quotes like xxx.jpg
+            val fileMatcher = fileNamePattern.matcher(contentString)
+            while (fileMatcher.find()) {
+                val fileName = fileMatcher.group(1)
+                if (fileName != null) {
+                    val start = fileMatcher.start()
+                    val end = fileMatcher.end()
+                    val clickableSpan = object : ClickableSpan() {
+                        override fun onClick(widget: View) {
+                            onQuoteClickListener?.invoke(fileName)
+                        }
+                        override fun updateDrawState(ds: TextPaint) {
+                            super.updateDrawState(ds)
+                            // Optionally style file name quotes differently, e.g., underline
+                            ds.isUnderlineText = true
+                        }
+                    }
+                    spannableBuilder.setSpan(clickableSpan, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+            }
+
+
             if (!searchQuery.isNullOrEmpty()) {
-                val textString = spannableBuilder.toString()
-                var startIndex = textString.indexOf(searchQuery, ignoreCase = true)
+                val textLc = contentString.lowercase()
+                val queryLc = searchQuery.lowercase()
+                var startIndex = textLc.indexOf(queryLc)
                 while (startIndex >= 0) {
-                    val endIndex = startIndex + searchQuery.length
+                    val endIndex = startIndex + queryLc.length
                     spannableBuilder.setSpan(
                         BackgroundColorSpan(Color.YELLOW),
                         startIndex,
                         endIndex,
                         Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
                     )
-                    startIndex = textString.indexOf(searchQuery, startIndex + 1, ignoreCase = true)
+                    startIndex = textLc.indexOf(queryLc, endIndex) // Start next search after the current find
                 }
             }
 
@@ -151,11 +189,15 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         }
     }
 
-    class ImageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+    class ImageViewHolder(
+        view: View,
+        private val onQuoteClickListener: ((quotedText: String) -> Unit)?,
+        private val fileNamePattern: Pattern
+    ) : RecyclerView.ViewHolder(view) {
         private val imageView: ImageView = view.findViewById(R.id.detailImageView)
         private val promptTextView: TextView = view.findViewById(R.id.promptTextView)
 
-        fun bind(item: DetailContent.Image, searchQuery: String?) { // Added searchQuery
+        fun bind(item: DetailContent.Image, searchQuery: String?) {
             imageView.load(item.imageUrl) {
                 crossfade(true)
                 placeholder(R.drawable.ic_launcher_background)
@@ -168,6 +210,26 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 val promptText = item.prompt
                 val spannableBuilder = SpannableStringBuilder(promptText)
 
+                // Handle file name quotes in prompt
+                val fileMatcher = fileNamePattern.matcher(promptText)
+                while (fileMatcher.find()) {
+                    val fileName = fileMatcher.group(1)
+                    if (fileName != null) {
+                        val start = fileMatcher.start()
+                        val end = fileMatcher.end()
+                        val clickableSpan = object : ClickableSpan() {
+                            override fun onClick(widget: View) {
+                                onQuoteClickListener?.invoke(fileName)
+                            }
+                            override fun updateDrawState(ds: TextPaint) {
+                                super.updateDrawState(ds)
+                                ds.isUnderlineText = true
+                            }
+                        }
+                        spannableBuilder.setSpan(clickableSpan, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                }
+
                 if (!searchQuery.isNullOrEmpty()) {
                     val textLc = promptText.lowercase()
                     val queryLc = searchQuery.lowercase()
@@ -179,6 +241,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                     }
                 }
                 promptTextView.text = spannableBuilder
+                promptTextView.movementMethod = LinkMovementMethod.getInstance() // Make ClickableSpans work
             } else {
                 promptTextView.isVisible = false
                 promptTextView.text = null
@@ -222,12 +285,16 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         }
     }
 
-    class VideoViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+    class VideoViewHolder(
+        view: View,
+        private val onQuoteClickListener: ((quotedText: String) -> Unit)?,
+        private val fileNamePattern: Pattern
+    ) : RecyclerView.ViewHolder(view) {
         private val playerView: PlayerView = view.findViewById(R.id.playerView)
         private val promptTextView: TextView = view.findViewById(R.id.promptTextView)
         private var exoPlayer: ExoPlayer? = null
 
-        fun bind(item: DetailContent.Video, searchQuery: String?) { // Added searchQuery
+        fun bind(item: DetailContent.Video, searchQuery: String?) {
             releasePlayer()
             val context = itemView.context
             exoPlayer = ExoPlayer.Builder(context).build().also { player ->
@@ -243,6 +310,26 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 val promptText = item.prompt
                 val spannableBuilder = SpannableStringBuilder(promptText)
 
+                // Handle file name quotes in prompt
+                val fileMatcher = fileNamePattern.matcher(promptText)
+                while (fileMatcher.find()) {
+                    val fileName = fileMatcher.group(1)
+                    if (fileName != null) {
+                        val start = fileMatcher.start()
+                        val end = fileMatcher.end()
+                        val clickableSpan = object : ClickableSpan() {
+                            override fun onClick(widget: View) {
+                                onQuoteClickListener?.invoke(fileName)
+                            }
+                            override fun updateDrawState(ds: TextPaint) {
+                                super.updateDrawState(ds)
+                                ds.isUnderlineText = true
+                            }
+                        }
+                        spannableBuilder.setSpan(clickableSpan, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                }
+
                 if (!searchQuery.isNullOrEmpty()) {
                     val textLc = promptText.lowercase()
                     val queryLc = searchQuery.lowercase()
@@ -254,6 +341,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                     }
                 }
                 promptTextView.text = spannableBuilder
+                promptTextView.movementMethod = LinkMovementMethod.getInstance() // Make ClickableSpans work
             } else {
                 promptTextView.isVisible = false
                 promptTextView.text = null
@@ -284,7 +372,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 .setNegativeButton("キャンセル", null)
                 .show()
         }
-        
+
         private fun showCopyDialog(context: Context, textToCopy: String) {
             AlertDialog.Builder(context)
                 .setItems(arrayOf("テキストをコピー")) { _, _ ->
@@ -310,7 +398,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
             return when {
                 oldItem is DetailContent.Image && newItem is DetailContent.Image -> oldItem.imageUrl == newItem.imageUrl
                 oldItem is DetailContent.Video && newItem is DetailContent.Video -> oldItem.videoUrl == newItem.videoUrl
-                oldItem is DetailContent.Text && newItem is DetailContent.Text -> oldItem.hashCode() == newItem.hashCode()
+                oldItem is DetailContent.Text && newItem is DetailContent.Text -> oldItem.htmlContent.hashCode() == newItem.htmlContent.hashCode() // Compare content
                 else -> false
             }
         }

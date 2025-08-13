@@ -168,9 +168,9 @@ class DetailActivity : AppCompatActivity() {
                             currentHiddenFieldStep = 0
                             hiddenFormValues.clear()
                             executeHiddenFieldJsStep(view)
-                        // 'url != targetPageUrlForFields' の条件が常にtrueという警告はロジック次第なので一旦そのまま (targetPageUrlForFieldsがnullでない前提ならOK)
+                            // 'url != targetPageUrlForFields' の条件が常にtrueという警告はロジック次第なので一旦そのまま (targetPageUrlForFieldsがnullでない前提ならOK)
                         } else if (isSubmissionProcessActive && url != targetPageUrlForFields) {
-                             resetSubmissionState("ページ準備中に予期せぬURLに遷移: $url")
+                            resetSubmissionState("ページ準備中に予期せぬURLに遷移: $url")
                         }
                     }
 
@@ -195,7 +195,7 @@ class DetailActivity : AppCompatActivity() {
             // JavaScript文字列のエスケープを修正
             val jsToExecute = "(function() { var el = document.querySelector('input[name=\'${fieldName}\']'); return el ? el.value : ''; })();"
             webView.evaluateJavascript(jsToExecute) { result ->
-                val value = result?.removeSurrounding("\"\"") ?: "" // valueはここで使用される
+                val value = result?.removeSurrounding("\"") ?: "" // valueはここで使用される
                 hiddenFormValues[fieldName] = value
                 currentHiddenFieldStep++
                 executeHiddenFieldJsStep(webView)
@@ -373,7 +373,7 @@ class DetailActivity : AppCompatActivity() {
             }
 
             override fun onResponse(call: Call, response: Response) {
-                 // responseBodyString はここで宣言・使用
+                // responseBodyString はここで宣言・使用
                 val responseBodyString = try { response.body?.string() } catch (e: Exception) { Log.e("DetailActivity", "Error reading response body",e); null }
                 response.use { resp -> // `it` の代わりに `resp` を使用
                     if (resp.isSuccessful) {
@@ -397,7 +397,7 @@ class DetailActivity : AppCompatActivity() {
                         if (responseBodyString?.contains("秒、投稿できません", ignoreCase = true) == true) {
                             var waitTimeMessage = "連続投稿制限のため、しばらく投稿できません。"
                             try {
-                                val regex = Regex("あと(\\d+)秒、投稿できません")
+                                val regex = Regex("""あと(\d+)秒、投稿できません""")
                                 val matchResult = responseBodyString.let { body -> if (body != null) regex.find(body) else null }
                                 if (matchResult != null && matchResult.groupValues.size > 1) {
                                     val seconds = matchResult.groupValues[1].toInt() // seconds はここで宣言・使用
@@ -556,14 +556,24 @@ class DetailActivity : AppCompatActivity() {
         detailAdapter.onQuoteClickListener = customLabel@{ quotedText ->
             val contentList = viewModel.detailContent.value ?: return@customLabel
             val targetPosition = contentList.indexOfFirst { content ->
-                (content is DetailContent.Text) &&
-                        Html.fromHtml(content.htmlContent, Html.FROM_HTML_MODE_COMPACT).toString()
-                            .contains(quotedText, ignoreCase = true)
+                when (content) {
+                    is DetailContent.Text -> Html.fromHtml(content.htmlContent, Html.FROM_HTML_MODE_COMPACT).toString().contains(quotedText, ignoreCase = true)
+                    is DetailContent.Image -> {
+                        (content.fileName?.equals(quotedText, ignoreCase = true) == true ||
+                         content.imageUrl.substringAfterLast('/').equals(quotedText, ignoreCase = true) ||
+                         content.prompt?.contains(quotedText, ignoreCase = true) == true)
+                    }
+                    is DetailContent.Video -> {
+                        (content.fileName?.equals(quotedText, ignoreCase = true) == true ||
+                         content.videoUrl.substringAfterLast('/').equals(quotedText, ignoreCase = true) ||
+                         content.prompt?.contains(quotedText, ignoreCase = true) == true)
+                    }
+                }
             }
             if (targetPosition != -1) {
                 binding.detailRecyclerView.smoothScrollToPosition(targetPosition)
             } else {
-                Toast.makeText(this, "引用元が見つかりません", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "引用元が見つかりません: $quotedText", Toast.LENGTH_SHORT).show()
             }
         }
         binding.detailRecyclerView.apply {
@@ -625,8 +635,14 @@ class DetailActivity : AppCompatActivity() {
         contentList.forEachIndexed { index, content ->
             val textToSearch: String? = when (content) {
                 is DetailContent.Text -> Html.fromHtml(content.htmlContent, Html.FROM_HTML_MODE_COMPACT).toString()
-                is DetailContent.Image -> content.prompt
-                is DetailContent.Video -> content.prompt
+                is DetailContent.Image -> {
+                    // プロンプト、ファイル名、URLのファイル名部分を検索対象にする
+                    "${content.prompt ?: ""} ${content.fileName ?: ""} ${content.imageUrl.substringAfterLast('/')}"
+                }
+                is DetailContent.Video -> {
+                    // プロンプト、ファイル名、URLのファイル名部分を検索対象にする
+                    "${content.prompt ?: ""} ${content.fileName ?: ""} ${content.videoUrl.substringAfterLast('/')}"
+                }
             }
             if (textToSearch?.contains(query, ignoreCase = true) == true) {
                 searchResultPositions.add(index)

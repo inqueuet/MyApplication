@@ -57,7 +57,7 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                     }
 
                     val textBlock = block.clone()
-                    mediaLink?.let { link -> textBlock.select("a[href='${link.attr("href")}']").remove() }
+                    mediaLink?.let { link -> textBlock.select("a[href='''${link.attr("href")}''']").remove() }
                     val html = textBlock.selectFirst(".rtd")?.html() ?: ""
                     if (html.isNotBlank()) {
                         content.add("text" to html)
@@ -95,8 +95,14 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                 val finalContentList = pendingContent.mapIndexedNotNull { index, (type, data) ->
                     when (type) {
                         "text" -> DetailContent.Text(data as String)
-                        "image" -> DetailContent.Image(data as String, prompts[index])
-                        "video" -> DetailContent.Video(data as String, prompts[index])
+                        "image" -> {
+                            val imageUrl = data as String
+                            DetailContent.Image(imageUrl, prompts[index], imageUrl.substringAfterLast('/'))
+                        }
+                        "video" -> {
+                            val videoUrl = data as String
+                            DetailContent.Video(videoUrl, prompts[index], videoUrl.substringAfterLast('/'))
+                        }
                         else -> null
                     }
                 }

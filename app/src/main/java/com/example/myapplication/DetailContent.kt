@@ -5,7 +5,7 @@ package com.example.myapplication
  * テキストか画像かを区別するために使用します。
  */
 sealed class DetailContent {
-    data class Image(val imageUrl: String, val prompt: String? = null) : DetailContent()
+    data class Image(val imageUrl: String, val prompt: String? = null, val fileName: String? = null) : DetailContent()
     data class Text(val htmlContent: String) : DetailContent()
-    data class Video(val videoUrl: String, val prompt: String? = null) : DetailContent()
+    data class Video(val videoUrl: String, val prompt: String? = null, val fileName: String? = null) : DetailContent()
 }
