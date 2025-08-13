@@ -22,4 +22,9 @@
         android:title="検索"
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="ifRoom|collapseActionView" />
+
+    <item
+        android:id="@+id/action_image_edit"
+        android:title="画像編集"
+        app:showAsAction="never" />
 </menu>

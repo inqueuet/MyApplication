@@ -108,6 +108,11 @@ class MainActivity : AppCompatActivity(), SearchView.OnQueryTextListener { // Se
                 bookmarkActivityResultLauncher.launch(intent)
                 true
             }
+            R.id.action_image_edit -> {
+                val intent = Intent(this, ImagePickerActivity::class.java)
+                startActivity(intent)
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
     }
