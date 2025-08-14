@@ -32,6 +32,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
+import coil.size.ViewSizeResolver // Added for ViewSizeResolver
 import kotlinx.coroutines.launch
 import java.util.regex.Pattern
 import android.text.Spanned
@@ -362,9 +363,9 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         fun bind(item: DetailContent.Image, searchQuery: String?) {
             imageView.load(item.imageUrl) {
                 crossfade(true)
-                placeholder(R.drawable.ic_launcher_background)
-                error(android.R.drawable.ic_dialog_alert)
-                size(coil.size.Size.ORIGINAL)
+                placeholder(R.drawable.ic_launcher_background) // Consider using a more specific placeholder
+                error(android.R.drawable.ic_dialog_alert) // Consider using a more specific error drawable
+                size(ViewSizeResolver(imageView)) // Changed from Size.ORIGINAL
             }
 
             if (!item.prompt.isNullOrBlank()) {
