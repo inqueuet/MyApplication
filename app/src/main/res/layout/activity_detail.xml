@@ -57,6 +57,7 @@
         android:id="@+id/detailRecyclerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:scrollbars="vertical"
         app:layout_behavior="@string/appbar_scrolling_view_behavior"
         tools:listitem="@layout/detail_item_image" />
 
