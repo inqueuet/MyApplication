@@ -44,7 +44,8 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
 
     private val fileNamePattern = Pattern.compile("\\b([a-zA-Z0-9_.-]+\\.(?:jpg|jpeg|png|gif|mp4|webm|mov|avi|flv|mkv))\\b", Pattern.CASE_INSENSITIVE)
     private val resNumPatternOriginal = Pattern.compile("No\\.(\\d+)") // 元のレス番号抽出用
-    private val sodaNePattern = Pattern.compile("(?:そうだね(\\d*)|([+＋]))") // ★「そうだねXX」または半角/全角「＋」にマッチ
+    // ★「そうだねXX」または「No.数字の後に続く+」のパターンにマッチ
+    private val sodaNePattern = Pattern.compile("(そうだね\\d*)|(No\\.\\d+\\s*([+＋]))")
 
 
     fun setSearchQuery(query: String?) {
@@ -84,7 +85,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 onSodaNeClickListener,
                 fileNamePattern,
                 resNumPatternOriginal, // ★ ViewHolderには元のNo.xxx用パターンを渡す
-                sodaNePattern
+                sodaNePattern // Pass the updated pattern
             )
             VIEW_TYPE_IMAGE -> ImageViewHolder(
                 LayoutInflater.from(parent.context).inflate(R.layout.detail_item_image, parent, false),
@@ -114,7 +115,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         private val onSodaNeClickListener: ((resNum: String) -> Unit)?,
         private val fileNamePattern: Pattern,
         private val resNumPatternForMain: Pattern, // ★メインのレス番号取得用
-        private val sodaNePatternForClick: Pattern // ★そうだね/＋ クリック処理用
+        private val sodaNePatternForClick: Pattern // ★そうだね/＋ クリック処理用 (updated pattern comes here)
     ) : RecyclerView.ViewHolder(view) {
         private val textView: TextView = view.findViewById(R.id.detailTextView)
 
@@ -171,31 +172,67 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                     spannableBuilder.setSpan(clickableSpan, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
             }
+
             // ★★★ 「そうだね」と「＋」の処理を修正 ★★★
             if (mainResNum != null) { // mainResNum がないと「そうだね」の対象が不明確
-                //  ここを contentString に変更
                 val sodaNeMatcher = sodaNePatternForClick.matcher(contentString)
                 while (sodaNeMatcher.find()) {
-                    val start = sodaNeMatcher.start()
-                    val end = sodaNeMatcher.end()
-                    val matchGroupZero = sodaNeMatcher.group(0) // マッチした全体 ("そうだね12", "＋")
-                    
-                    // 「そうだねXX」も「＋」も、そのレス（mainResNum）に対する操作とする
-                    // Log.d("TextViewHolder", "Found sodaNe/plus: '$matchGroupZero' for mainResNum: '$mainResNum', Range: $start-$end")
-                    Log.d("TextViewHolder", "Found sodaNe/plus candidate: '$matchGroupZero' in contentString at range: $start-$end. Main resNum: '$mainResNum'")
+                    var spanStart = -1
+                    var spanEnd = -1
+                    // val clickableResNum = mainResNum // Default to mainResNum for the click (already have mainResNum)
+                    var logMessage = ""
 
+                    val matchedSodaNeWithDigits = sodaNeMatcher.group(1) // (そうだね\d*)
+                    val matchedNoDotPatternWithPlus = sodaNeMatcher.group(2) // (No\.\d+\s*([+＋]))
+                    // group(3) would be ([+＋]) from the second part
 
-                    spannableBuilder.setSpan(
-                        SodaNeClickableSpan(mainResNum, onSodaNeClickListener), // クリック時に渡すのはmainResNum
-                        start,
-                        end,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                    // Log.d("TextViewHolder", "Set SodaNeClickableSpan for mainResNum: '$mainResNum' (triggered by '$matchGroupZero')")
-                    Log.d("TextViewHolder", "Set SodaNeClickableSpan for mainResNum: '$mainResNum' (triggered by '$matchGroupZero') on spannableBuilder at range $start-$end")
+                    if (matchedSodaNeWithDigits != null) {
+                        spanStart = sodaNeMatcher.start(1)
+                        spanEnd = sodaNeMatcher.end(1)
+                        // For "そうだね", the click refers to mainResNum
+                        logMessage = "Found 'そうだね': '$matchedSodaNeWithDigits' for mainResNum: '$mainResNum'. Clickable Range: $spanStart-$spanEnd"
+                    } else if (matchedNoDotPatternWithPlus != null) {
+                        // This matched "No.XXX +"
+                        // We need to ensure that the No.XXX part corresponds to the current item's mainResNum
+                        val tempResNumPattern = Pattern.compile("No\\.(\\d+)") // To extract number from matchedNoDotPatternWithPlus
+                        val tempMatcher = tempResNumPattern.matcher(matchedNoDotPatternWithPlus)
+                        if (tempMatcher.find()) {
+                            val numInPlusContext = tempMatcher.group(1)
+                            if (numInPlusContext == mainResNum) {
+                                // The "No.XXX" part matches the item's mainResNum.
+                                // The clickable span should be only on the "+"
+                                val actualPlusSign = sodaNeMatcher.group(3) // This is the captured + or ＋
+                                if (actualPlusSign != null) {
+                                    spanStart = sodaNeMatcher.start(3)
+                                    spanEnd = sodaNeMatcher.end(3)
+                                    // The click still refers to mainResNum
+                                    logMessage = "Found '+': '$actualPlusSign' (from '$matchedNoDotPatternWithPlus') associated with mainResNum: '$mainResNum'. Clickable Range: $spanStart-$spanEnd"
+                                } else {
+                                    Log.w("TextViewHolder", "Error: Matched NoPlusContainer '$matchedNoDotPatternWithPlus' but couldn't get group(3) for '+'. MainResNum: '$mainResNum'. Skipping.")
+                                    continue
+                                }
+                            } else {
+                                Log.d("TextViewHolder", "Found '$matchedNoDotPatternWithPlus', but its resNum '$numInPlusContext' does NOT match current item's mainResNum '$mainResNum'. Skipping span for this match.")
+                                continue // Skip making this specific "+" clickable as it's for a different resNum
+                            }
+                        } else {
+                             Log.w("TextViewHolder", "Error: Could not extract resNum from NoPlusContainer '$matchedNoDotPatternWithPlus' even though it matched. MainResNum: '$mainResNum'. Skipping.")
+                            continue
+                        }
+                    }
+
+                    if (spanStart != -1 && spanEnd != -1) {
+                        Log.d("TextViewHolder", logMessage) 
+                        spannableBuilder.setSpan(
+                            SodaNeClickableSpan(mainResNum, onSodaNeClickListener), // Use mainResNum
+                            spanStart,
+                            spanEnd,
+                            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                        )
+                        Log.d("TextViewHolder", "Set SodaNeClickableSpan for resNum: '$mainResNum' on spannableBuilder at range $spanStart-$spanEnd")
+                    }
                 }
             } else {
-                 // Log.w("TextViewHolder", "Skipping SodaNe/Plus span setup because mainResNum is null.")
                  Log.w("TextViewHolder", "Skipping SodaNe/Plus span setup because mainResNum is null for content: ${contentString.take(50)}")
             }
             // ★★★ ここまで修正 ★★★
@@ -263,33 +300,28 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                             }
 
                             // Priority 2: Handle other ClickableSpans (e.g., URLSpan generated by Html.fromHtml)
-                            // If no SodaNeClickableSpan was found and handled, check other spans.
-                            // We'll process the first one found that is not a SodaNeClickableSpan.
-                            for (span in spans) { // Iterate again or use the first one if logic is simple
+                            for (span in spans) { 
                                 if (span is URLSpan) {
                                     val url = span.url
                                     Log.d("CustomLinkMovement", "Found URLSpan with URL: $url")
                                     if (url != null && url.startsWith("javascript:")) {
                                         Log.d("CustomLinkMovement", "Ignoring javascript: link: $url")
-                                        // return true to consume the event, even if we do nothing
                                     } else {
                                         Log.d("CustomLinkMovement", "Handling URLSpan: $url")
                                         span.onClick(widget)
                                     }
-                                    return true // Event handled or intentionally ignored
-                                } else if (span !is SodaNeClickableSpan) { // Handle other non-SodaNe ClickableSpans
+                                    return true 
+                                } else if (span !is SodaNeClickableSpan) { 
                                     Log.d("CustomLinkMovement", "Handling other ClickableSpan: $span")
                                     span.onClick(widget)
-                                    return true // Event handled
+                                    return true 
                                 }
                             }
-                            // If spans were found but none were handled by the logic above (e.g. only ignored JS links)
-                            return true // Still consume the event as spans were present
+                            return true 
                         } else {
                             Log.d("CustomLinkMovement", "No ClickableSpan found at offset $off")
                         }
                     }
-                    // For other actions or if no span was hit on ACTION_UP, delegate to super
                     return super.onTouchEvent(widget, buffer, event)
                 }
             }
