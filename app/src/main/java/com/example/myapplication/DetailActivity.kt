@@ -35,7 +35,7 @@ import java.io.IOException // sendCommentWithOkHttp で使用
 import java.util.concurrent.TimeUnit
 import okhttp3.JavaNetCookieJar
 import android.app.AlertDialog // showAddCommentDialogで使用
-
+import java.util.ArrayDeque // スクロール履歴で使用
 
 class DetailActivity : AppCompatActivity() {
 
@@ -47,6 +47,9 @@ class DetailActivity : AppCompatActivity() {
     private var currentUrl: String? = null
 
     private lateinit var layoutManager: LinearLayoutManager // setupRecyclerViewで使用
+
+    // Scroll history for "back" functionality
+    private val scrollHistory = ArrayDeque<Pair<Int, Int>>(2) // Pair of position and offset
 
     // Search related variables
     private var searchView: SearchView? = null // onCreateOptionsMenu, onOptionsItemSelected, saveCurrentScrollStateIfApplicable, clearSearchAndUI で使用
@@ -145,7 +148,7 @@ class DetailActivity : AppCompatActivity() {
         }
     }
 
-    // Unresolved reference 'setupCustomToolbarElements' を解決するためにこの関数を追加します
+    // Unresolved reference \'setupCustomToolbarElements\' を解決するためにこの関数を追加します
     private fun setupCustomToolbarElements() {
         binding.backButton.setOnClickListener {
             onBackPressedDispatcher.onBackPressed()
@@ -168,7 +171,7 @@ class DetailActivity : AppCompatActivity() {
                             currentHiddenFieldStep = 0
                             hiddenFormValues.clear()
                             executeHiddenFieldJsStep(view)
-                            // 'url != targetPageUrlForFields' の条件が常にtrueという警告はロジック次第なので一旦そのまま (targetPageUrlForFieldsがnullでない前提ならOK)
+                            // \'url != targetPageUrlForFields\' の条件が常にtrueという警告はロジック次第なので一旦そのまま (targetPageUrlForFieldsがnullでない前提ならOK)
                         } else if (isSubmissionProcessActive && url != targetPageUrlForFields) {
                             resetSubmissionState("ページ準備中に予期せぬURLに遷移: $url")
                         }
@@ -193,7 +196,7 @@ class DetailActivity : AppCompatActivity() {
         if (currentHiddenFieldStep < hiddenFieldSelectors.size) {
             val fieldName = hiddenFieldSelectors[currentHiddenFieldStep]
             // JavaScript文字列のエスケープを修正
-            val jsToExecute = "(function() { var el = document.querySelector('input[name=\'${fieldName}\']'); return el ? el.value : ''; })();"
+            val jsToExecute = "(function() { var el = document.querySelector(\'input[name=\\\'${fieldName}\\\']\'); return el ? el.value : \'\'; })();"
             webView.evaluateJavascript(jsToExecute) { result ->
                 val value = result?.removeSurrounding("\"") ?: "" // valueはここで使用される
                 hiddenFormValues[fieldName] = value
@@ -397,7 +400,7 @@ class DetailActivity : AppCompatActivity() {
                         if (responseBodyString?.contains("秒、投稿できません", ignoreCase = true) == true) {
                             var waitTimeMessage = "連続投稿制限のため、しばらく投稿できません。"
                             try {
-                                val regex = Regex("""あと(\\d+)秒、投稿できません""")
+                                val regex = Regex("""あと(\d+)秒、投稿できません""")
                                 val matchResult = responseBodyString.let { body -> if (body != null) regex.find(body) else null }
                                 if (matchResult != null && matchResult.groupValues.size > 1) {
                                     val seconds = matchResult.groupValues[1].toInt() // seconds はここで宣言・使用
@@ -430,17 +433,17 @@ class DetailActivity : AppCompatActivity() {
                         }
                         else if (responseBodyString?.contains("ERROR:", ignoreCase = true) == true ||
                             responseBodyString?.contains("エラー：", ignoreCase = true) == true ||
-                            responseBodyString?.contains("<link rel=\"canonical\" href=\"https://may.2chan.net/b/futaba.htm\">", ignoreCase = true) == true ) {
+                            responseBodyString?.contains("<link rel=\\\"canonical\\\" href=\\\"https://may.2chan.net/b/futaba.htm\\\">", ignoreCase = true) == true ) {
                             var extractedErrorMessage = "サーバーが投稿を拒否しました。または予期せぬページが返されました。"
                             if (!responseBodyString.isNullOrEmpty()) {
                                 if (responseBodyString.contains("ERROR:") || responseBodyString.contains("エラー：")) {
                                     val extracted = responseBodyString.substringAfter("<h1>", "").substringBefore("</h1>", "").trim()
                                     if (extracted.isNotEmpty()) extractedErrorMessage = extracted
                                     else {
-                                        val extracted2 = responseBodyString.substringAfter("<font color=\"#ff0000\"><b>", "").substringBefore("</b></font>", "").trim()
+                                        val extracted2 = responseBodyString.substringAfter("<font color=\\\"#ff0000\\\"><b>", "").substringBefore("</b></font>", "").trim()
                                         if(extracted2.isNotEmpty()) extractedErrorMessage = extracted2
                                     }
-                                } else if (responseBodyString.contains("<link rel=\"canonical\" href=\"https://may.2chan.net/b/futaba.htm\">", ignoreCase = true)) {
+                                } else if (responseBodyString.contains("<link rel=\\\"canonical\\\" href=\\\"https://may.2chan.net/b/futaba.htm\\\">", ignoreCase = true)) {
                                     extractedErrorMessage = "投稿が受理されず、メインページが返されました。内容を確認してください。"
                                 }
                             }
@@ -475,7 +478,7 @@ class DetailActivity : AppCompatActivity() {
                                 val extracted = responseBodyString.substringAfter("<h1>", "").substringBefore("</h1>", "").trim()
                                 if (extracted.isNotEmpty()) errorMessage = extracted
                                 else {
-                                    val extracted2 = responseBodyString.substringAfter("<font color=\"#ff0000\"><b>", "").substringBefore("</b></font>", "").trim()
+                                    val extracted2 = responseBodyString.substringAfter("<font color=\\\"#ff0000\\\"><b>", "").substringBefore("</b></font>", "").trim()
                                     if(extracted2.isNotEmpty()) errorMessage = extracted2
                                 }
                             }
@@ -522,12 +525,35 @@ class DetailActivity : AppCompatActivity() {
                 currentUrl?.let { urlToRefresh ->
                     saveCurrentScrollStateIfApplicable()
                     clearSearchAndUI()
+                    scrollHistory.clear() // 再読み込み時に履歴をクリア
                     viewModel.fetchDetails(urlToRefresh, forceRefresh = true)
                     Toast.makeText(this, "再読み込みしています...", Toast.LENGTH_SHORT).show()
                 }
                 true
             }
             R.id.action_write -> { showAddCommentDialog(); true }
+            R.id.action_scroll_back -> {
+                if (scrollHistory.isNotEmpty()) {
+                    val (position, offset) = scrollHistory.removeLast() // 直近の位置を取り出す
+                    
+                    // 現在の位置を履歴の「次」の戻り先として保存するロジックは削除し、
+                    // 単純に履歴を遡る形に変更。
+                    // これにより、A->Bにジャンプ後、「戻る」でAに戻り、
+                    // もう一度「戻る」を押してもBには戻らない（履歴の最後の要素が消費されるため）。
+                    // もし交互の動作が必要なら、再度ロジックを検討。
+
+                    if (position >= 0 && position < detailAdapter.itemCount) {
+                        binding.detailRecyclerView.post {
+                            layoutManager.scrollToPositionWithOffset(position, offset)
+                        }
+                    } else {
+                         Toast.makeText(this, "戻る先の位置が無効です。", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(this, "戻る履歴がありません。", Toast.LENGTH_SHORT).show()
+                }
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -555,6 +581,19 @@ class DetailActivity : AppCompatActivity() {
         layoutManager = LinearLayoutManager(this@DetailActivity) // layoutManagerのインスタンス化
         detailAdapter.onQuoteClickListener = customLabel@{ quotedText ->
             val contentList = viewModel.detailContent.value ?: return@customLabel
+
+            // --- スクロール履歴保存処理 ---
+            val currentFirstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition()
+            if (currentFirstVisibleItemPosition != RecyclerView.NO_POSITION) {
+                val firstVisibleItemView = layoutManager.findViewByPosition(currentFirstVisibleItemPosition)
+                val offset = firstVisibleItemView?.top ?: 0
+                if (scrollHistory.size == 2) { // 履歴は最大2つまで
+                    scrollHistory.removeFirst() // 古い履歴を削除
+                }
+                scrollHistory.addLast(Pair(currentFirstVisibleItemPosition, offset)) // 新しい履歴を追加
+            }
+            // --- スクロール履歴保存処理ここまで ---
+
             val targetPosition = contentList.indexOfFirst { content ->
                 when (content) {
                     is DetailContent.Text -> Html.fromHtml(content.htmlContent, Html.FROM_HTML_MODE_COMPACT).toString().contains(quotedText, ignoreCase = true)
