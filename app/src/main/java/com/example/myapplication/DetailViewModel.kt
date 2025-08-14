@@ -13,6 +13,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.MalformedURLException
 import java.net.URL
 
 class DetailViewModel(application: Application) : AndroidViewModel(application) {
@@ -34,6 +35,7 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
             this@DetailViewModel.currentUrl = url
             _isLoading.value = true
             _error.value = null
+            var itemIdCounter = 0L // ID生成用のカウンターを追加
 
             try {
                 if (!forceRefresh) {
@@ -56,11 +58,9 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                 val progressivelyLoadedContent = mutableListOf<DetailContent>()
                 val promptJobs = mutableListOf<Deferred<Pair<Int, String?>>>()
 
-                // Clear previous content or indicate loading of new content for this URL
                 _detailContent.postValue(emptyList())
 
                 contentBlocks.forEach { block ->
-                    // 1. Extract and add text content
                     val textBlock = block.clone()
                     val mediaLinkForTextExclusion = block.select("a[target=_blank]").firstOrNull { a ->
                         val href = a.attr("href").lowercase()
@@ -69,27 +69,31 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                     mediaLinkForTextExclusion?.let { link -> textBlock.select("a[href='''${link.attr("href")}''']").remove() }
                     val html = textBlock.selectFirst(".rtd")?.html() ?: ""
                     if (html.isNotBlank()) {
-                        progressivelyLoadedContent.add(DetailContent.Text(html))
+                        progressivelyLoadedContent.add(DetailContent.Text(id = "text_${itemIdCounter++}", htmlContent = html))
                     }
 
-                    // 2. Extract and add media content (placeholder for prompt)
                     val mediaLinkNode = block.select("a[target=_blank]").firstOrNull { a ->
                         val href = a.attr("href").lowercase()
                         href.endsWith(".png") || href.endsWith(".jpg") || href.endsWith(".jpeg") || href.endsWith(".gif") || href.endsWith(".webp") || href.endsWith(".webm") || href.endsWith(".mp4")
                     }
 
                     mediaLinkNode?.let { link ->
-                        val href = link.attr("href").lowercase()
-                        val absoluteUrl = URL(URL(url), href).toString()
+                        val hrefAttr = link.attr("href")
+                        val absoluteUrl = try {
+                            URL(URL(url), hrefAttr).toString()
+                        } catch (e: MalformedURLException) {
+                            Log.e("DetailViewModel", "Failed to form absolute URL from base: $url and href: $hrefAttr", e)
+                            hrefAttr // Fallback to hrefAttr if URL construction fails
+                        }
                         val fileName = absoluteUrl.substringAfterLast('/')
-                        val itemIndexInList = progressivelyLoadedContent.size // Index for the media item to be added
+                        val itemIndexInList = progressivelyLoadedContent.size
 
                         val mediaContent = when {
-                            href.endsWith(".jpg") || href.endsWith(".png") || href.endsWith(".jpeg") || href.endsWith(".gif") || href.endsWith(".webp") -> {
-                                DetailContent.Image(absoluteUrl, null, fileName)
+                            hrefAttr.lowercase().endsWith(".jpg") || hrefAttr.lowercase().endsWith(".png") || hrefAttr.lowercase().endsWith(".jpeg") || hrefAttr.lowercase().endsWith(".gif") || hrefAttr.lowercase().endsWith(".webp") -> {
+                                DetailContent.Image(id = absoluteUrl, imageUrl = absoluteUrl, prompt = null, fileName = fileName)
                             }
-                            href.endsWith(".webm") || href.endsWith(".mp4") -> {
-                                DetailContent.Video(absoluteUrl, null, fileName)
+                            hrefAttr.lowercase().endsWith(".webm") || hrefAttr.lowercase().endsWith(".mp4") -> {
+                                DetailContent.Video(id = absoluteUrl, videoUrl = absoluteUrl, prompt = null, fileName = fileName)
                             }
                             else -> null
                         }
@@ -128,16 +132,13 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                             }
                         }
                     }
-                    // Post intermediate results after processing each block (or a batch of blocks)
-                    _detailContent.postValue(progressivelyLoadedContent.toList())
                 }
+                _detailContent.postValue(progressivelyLoadedContent.toList())
+                _isLoading.value = false
 
-                _isLoading.value = false // Initial content (text + media placeholders) is loaded
-
-                // Wait for all prompt jobs to complete for caching the final list
                 val allPromptResults = promptJobs.awaitAll()
 
-                val finalContentListForCache = progressivelyLoadedContent.toMutableList() // Start with the base list
+                val finalContentListForCache = progressivelyLoadedContent.toMutableList()
                 allPromptResults.forEach { (index, prompt) ->
                     if (index < finalContentListForCache.size) {
                         val itemToUpdate = finalContentListForCache[index]
@@ -148,10 +149,7 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
                 }
-                // Optionally, post the fully complete list again to ensure UI consistency,
-                // though individual updates should ideally cover this.
-                // _detailContent.postValue(finalContentListForCache.toList())
-
+                // _detailContent.postValue(finalContentListForCache.toList()) // Already posted individual updates
 
                 withContext(Dispatchers.IO) {
                     cacheManager.saveDetails(url, finalContentListForCache.toList())
@@ -159,10 +157,9 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
 
             } catch (e: Exception) {
                 _error.value = "詳細の取得に失敗しました: ${e.message}"
-                e.printStackTrace()
+                Log.e("DetailViewModel", "Error fetching details for $url", e)
                 _isLoading.value = false
             }
-            // No finally block for _isLoading.value = false, as it's handled by specific paths.
         }
     }
 
@@ -172,15 +169,11 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /**
-     * 「そうだね」を投稿する
-     * @param resNum レス番号
-     */
     fun postSodaNe(resNum: String) {
         val url = currentUrl
         if (url == null) {
             _error.value = "「そうだね」の投稿に失敗しました: 対象のURLが不明です。"
-            _isLoading.value = false
+            // _isLoading.value = false; //isLoading may not be true here, let UI decide
             return
         }
 
