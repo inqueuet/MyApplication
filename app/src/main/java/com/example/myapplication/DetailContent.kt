@@ -27,4 +27,6 @@ sealed class DetailContent {
         val prompt: String? = null,
         val fileName: String? = null
     ) : DetailContent()
+
+    data class ThreadEndTime(override val id: String, val endTime: String) : DetailContent()
 }

@@ -66,7 +66,7 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                         val href = a.attr("href").lowercase()
                         href.endsWith(".png") || href.endsWith(".jpg") || href.endsWith(".jpeg") || href.endsWith(".gif") || href.endsWith(".webp") || href.endsWith(".webm") || href.endsWith(".mp4")
                     }
-                    mediaLinkForTextExclusion?.let { link -> textBlock.select("a[href='''${link.attr("href")}''']").remove() }
+                    mediaLinkForTextExclusion?.let { link -> textBlock.select("a[href=\'''${link.attr("href")}\''']").remove() }
                     val html = textBlock.selectFirst(".rtd")?.html() ?: ""
                     if (html.isNotBlank()) {
                         progressivelyLoadedContent.add(DetailContent.Text(id = "text_${itemIdCounter++}", htmlContent = html))
@@ -133,6 +133,45 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
                 }
+                // Extract thread end time
+                val scriptElements = document.select("script")
+                var threadEndTime: String? = null
+                val docWriteRegex = Regex("""document\.write\s*\(\s*'(.*?)'\s*\)""")
+                val timeRegex = Regex("""<span id="contdisp">([^<]+)<\/span>""") // This regex expects </span> (normal slash)
+
+                for (scriptElement in scriptElements) {
+                    val scriptData = scriptElement.data() // Use .data() to get script content
+                    
+                    if (scriptData.contains("document.write") && scriptData.contains("contdisp")) {
+                        Log.d("DetailViewModel", "Found script with document.write and contdisp: $scriptData")
+                        val docWriteMatch = docWriteRegex.find(scriptData)
+                        
+                        val writtenHtmlFromDocWrite = docWriteMatch?.groupValues?.getOrNull(1)
+                        Log.d("DetailViewModel", "Raw content from document.write: $writtenHtmlFromDocWrite")
+
+                        // Normalize the extracted HTML: unescape \' to ' and \/ to /
+                        val writtenHtml = writtenHtmlFromDocWrite
+                            ?.replace("\\'", "'")  // Unescape \' to '
+                            ?.replace("\\/", "/")    // Unescape \/ to /
+                        Log.d("DetailViewModel", "Normalized HTML for timeRegex: $writtenHtml")
+
+                        if (writtenHtml != null) {
+                            val timeMatch = timeRegex.find(writtenHtml)
+                            threadEndTime = timeMatch?.groupValues?.getOrNull(1)
+                            Log.d("DetailViewModel", "ThreadEndTime extracted: $threadEndTime")
+                            if (threadEndTime != null) {
+                                Log.d("DetailViewModel", "ThreadEndTime found in script: ${scriptElement.outerHtml()}")
+                                break // Found, no need to check other scripts
+                            }
+                        }
+                    }
+                }
+
+                threadEndTime?.let {
+                    Log.d("DetailViewModel", "Adding ThreadEndTime to list: $it")
+                    progressivelyLoadedContent.add(DetailContent.ThreadEndTime(id = "thread_end_time_${itemIdCounter++}", endTime = it))
+                }
+
                 _detailContent.postValue(progressivelyLoadedContent.toList())
                 _isLoading.value = false
 
@@ -149,7 +188,14 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                         }
                     }
                 }
-                // _detailContent.postValue(finalContentListForCache.toList()) // Already posted individual updates
+                // Add thread end time to cache list as well
+                // This check ensures we don't add a duplicate if it was already in progressivelyLoadedContent
+                threadEndTime?.let {
+                    if (!finalContentListForCache.any { item -> item is DetailContent.ThreadEndTime && item.endTime == it }) {
+                         finalContentListForCache.add(DetailContent.ThreadEndTime(id = "thread_end_time_cache_${itemIdCounter++}", endTime = it))
+                    }
+                }
+
 
                 withContext(Dispatchers.IO) {
                     cacheManager.saveDetails(url, finalContentListForCache.toList())

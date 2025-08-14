@@ -60,6 +60,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         const val VIEW_TYPE_TEXT = 1
         const val VIEW_TYPE_IMAGE = 2
         const val VIEW_TYPE_VIDEO = 3
+        const val VIEW_TYPE_THREAD_END_TIME = 4 // New ViewType
     }
 
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
@@ -74,6 +75,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
             is DetailContent.Text -> VIEW_TYPE_TEXT
             is DetailContent.Image -> VIEW_TYPE_IMAGE
             is DetailContent.Video -> VIEW_TYPE_VIDEO
+            is DetailContent.ThreadEndTime -> VIEW_TYPE_THREAD_END_TIME // Handle new type
         }
     }
 
@@ -97,7 +99,10 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 onQuoteClickListener,
                 fileNamePattern
             )
-            else -> throw IllegalArgumentException("Invalid view type")
+            VIEW_TYPE_THREAD_END_TIME -> ThreadEndTimeViewHolder(
+                LayoutInflater.from(parent.context).inflate(R.layout.detail_item_thread_end_time, parent, false)
+            )
+            else -> throw IllegalArgumentException("Invalid view type: $viewType")
         }
     }
 
@@ -106,6 +111,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
             is DetailContent.Text -> (holder as TextViewHolder).bind(item, currentSearchQuery)
             is DetailContent.Image -> (holder as ImageViewHolder).bind(item, currentSearchQuery)
             is DetailContent.Video -> (holder as VideoViewHolder).bind(item, currentSearchQuery)
+            is DetailContent.ThreadEndTime -> (holder as ThreadEndTimeViewHolder).bind(item)
         }
     }
 
@@ -344,7 +350,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 .show()
         }
     }
-    // ... (ImageViewHolder, VideoViewHolder は変更なし) ...
+
     class ImageViewHolder(
         view: View,
         private val onQuoteClickListener: ((quotedText: String) -> Unit)?,
@@ -546,7 +552,28 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
             }
         }
     }
-    // ★★★ SodaNeClickableSpan を Adapter の内部クラスまたは同じファイル内の別のクラスとして定義 ★★★
+
+    class ThreadEndTimeViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val endTimeTextView: TextView = view.findViewById(R.id.endTimeTextView)
+
+        fun bind(item: DetailContent.ThreadEndTime) {
+            endTimeTextView.text = item.endTime
+            // Optionally, add long click listener for copy, similar to TextViewHolder
+            endTimeTextView.setOnLongClickListener {
+                val context = itemView.context
+                AlertDialog.Builder(context)
+                    .setItems(arrayOf("テキストをコピー")) { _, _ ->
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = ClipData.newPlainText("Copied End Time", item.endTime)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(context, "終了時刻をコピーしました", Toast.LENGTH_SHORT).show()
+                    }
+                    .show()
+                true
+            }
+        }
+    }
+
     class SodaNeClickableSpan(
         private val resNum: String,
         private val listener: ((String) -> Unit)? // Nullableに変更
@@ -562,20 +589,20 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
             ds.color = Color.MAGENTA    // 例: 色を変える (BLUEだと通常のリンクと区別しにくいのでMAGENTAに)
         }
     }
-    // ★★★ ここまで ★★★
 
     class DetailDiffCallback : DiffUtil.ItemCallback<DetailContent>() {
         override fun areItemsTheSame(oldItem: DetailContent, newItem: DetailContent): Boolean {
             return when {
                 oldItem is DetailContent.Image && newItem is DetailContent.Image -> oldItem.imageUrl == newItem.imageUrl
                 oldItem is DetailContent.Video && newItem is DetailContent.Video -> oldItem.videoUrl == newItem.videoUrl
-                oldItem is DetailContent.Text && newItem is DetailContent.Text -> oldItem.htmlContent.hashCode() == newItem.htmlContent.hashCode() // Compare content
-                else -> false
+                oldItem is DetailContent.Text && newItem is DetailContent.Text -> oldItem.id == newItem.id // Use unique ID for Text
+                oldItem is DetailContent.ThreadEndTime && newItem is DetailContent.ThreadEndTime -> oldItem.id == newItem.id // Use unique ID for ThreadEndTime
+                else -> oldItem.javaClass == newItem.javaClass && oldItem.id == newItem.id // Fallback for other types if they have IDs
             }
         }
 
         override fun areContentsTheSame(oldItem: DetailContent, newItem: DetailContent): Boolean {
-            return oldItem == newItem
+            return oldItem == newItem // Data classes compare by content automatically
         }
     }
 }

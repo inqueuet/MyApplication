@@ -607,6 +607,7 @@ class DetailActivity : AppCompatActivity() {
                          content.videoUrl.substringAfterLast('/').equals(quotedText, ignoreCase = true) ||
                          content.prompt?.contains(quotedText, ignoreCase = true) == true)
                     }
+                    is DetailContent.ThreadEndTime -> false // Added this line
                 }
             }
             if (targetPosition != -1) {
@@ -687,6 +688,7 @@ class DetailActivity : AppCompatActivity() {
                     // プロンプト、ファイル名、URLのファイル名部分を検索対象にする
                     "${content.prompt ?: ""} ${content.fileName ?: ""} ${content.videoUrl.substringAfterLast('/')}"
                 }
+                is DetailContent.ThreadEndTime -> null // Added this line
             }
             if (textToSearch?.contains(query, ignoreCase = true) == true) {
                 searchResultPositions.add(index)
