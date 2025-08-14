@@ -13,6 +13,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.MalformedURLException
 import java.net.URL
 
@@ -58,7 +59,7 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                 val progressivelyLoadedContent = mutableListOf<DetailContent>()
                 val promptJobs = mutableListOf<Deferred<Pair<Int, String?>>>()
 
-                _detailContent.postValue(emptyList())
+                _detailContent.postValue(emptyList()) // Initially set empty list or placeholder
 
                 contentBlocks.forEach { block ->
                     val textBlock = block.clone()
@@ -102,109 +103,93 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                             progressivelyLoadedContent.add(mediaContent)
                             val deferredPrompt = async(Dispatchers.IO) {
                                 try {
-                                    Pair(itemIndexInList, MetadataExtractor.extract(getApplication(), absoluteUrl))
+                                    val prompt = withTimeoutOrNull(30000L) { // 30-second timeout
+                                        MetadataExtractor.extract(getApplication(), absoluteUrl)
+                                    }
+                                    if (prompt == null) {
+                                        Log.w("DetailViewModel", "Metadata for $absoluteUrl was null (possibly due to timeout or explicit null return)")
+                                    }
+                                    Pair(itemIndexInList, prompt)
                                 } catch (e: Exception) {
-                                    Log.w("DetailViewModel", "Failed to extract metadata for $absoluteUrl", e)
+                                    Log.e("DetailViewModel", "Exception during metadata extraction task for $absoluteUrl", e)
                                     Pair(itemIndexInList, null as String?)
                                 }
                             }
                             promptJobs.add(deferredPrompt)
-
-                            viewModelScope.launch {
-                                try {
-                                    val (idx, promptResult) = deferredPrompt.await()
-                                    val currentListSnapshot = _detailContent.value?.toList() ?: emptyList()
-                                    if (idx < currentListSnapshot.size) {
-                                       val newListForUpdate = currentListSnapshot.toMutableList()
-                                       val oldItem = newListForUpdate[idx]
-                                       newListForUpdate[idx] = when (oldItem) {
-                                           is DetailContent.Image -> oldItem.copy(prompt = promptResult)
-                                           is DetailContent.Video -> oldItem.copy(prompt = promptResult)
-                                           else -> oldItem
-                                       }
-                                       _detailContent.postValue(newListForUpdate)
-                                    } else {
-                                         Log.w("DetailViewModel", "Index $idx out of bounds for UI update. List size: ${currentListSnapshot.size}")
-                                    }
-                                } catch (e: Exception) {
-                                     Log.e("DetailViewModel", "Error awaiting individual prompt for UI update", e)
-                                }
-                            }
                         }
                     }
                 }
                 // Extract thread end time
                 val scriptElements = document.select("script")
                 var threadEndTime: String? = null
-                val docWriteRegex = Regex("""document\.write\s*\(\s*'(.*?)'\s*\)""")
-                val timeRegex = Regex("""<span id="contdisp">([^<]+)<\/span>""") // This regex expects </span> (normal slash)
+                val docWriteRegex = Regex("""document\.write\s*\(\s*'(.*?)'\s*\)""" )
+                val timeRegex = Regex("""<span id="contdisp">([^<]+)<\/span>""" )
 
                 for (scriptElement in scriptElements) {
-                    val scriptData = scriptElement.data() // Use .data() to get script content
-                    
+                    val scriptData = scriptElement.data()
                     if (scriptData.contains("document.write") && scriptData.contains("contdisp")) {
-                        Log.d("DetailViewModel", "Found script with document.write and contdisp: $scriptData")
                         val docWriteMatch = docWriteRegex.find(scriptData)
-                        
                         val writtenHtmlFromDocWrite = docWriteMatch?.groupValues?.getOrNull(1)
-                        Log.d("DetailViewModel", "Raw content from document.write: $writtenHtmlFromDocWrite")
-
-                        // Normalize the extracted HTML: unescape \' to ' and \/ to /
-                        val writtenHtml = writtenHtmlFromDocWrite
-                            ?.replace("\\'", "'")  // Unescape \' to '
-                            ?.replace("\\/", "/")    // Unescape \/ to /
-                        Log.d("DetailViewModel", "Normalized HTML for timeRegex: $writtenHtml")
-
+                        val writtenHtml = writtenHtmlFromDocWrite?.replace("\\'", "'")?.replace("\\/", "/")
                         if (writtenHtml != null) {
                             val timeMatch = timeRegex.find(writtenHtml)
                             threadEndTime = timeMatch?.groupValues?.getOrNull(1)
-                            Log.d("DetailViewModel", "ThreadEndTime extracted: $threadEndTime")
-                            if (threadEndTime != null) {
-                                Log.d("DetailViewModel", "ThreadEndTime found in script: ${scriptElement.outerHtml()}")
-                                break // Found, no need to check other scripts
-                            }
+                            if (threadEndTime != null) break
                         }
                     }
                 }
 
                 threadEndTime?.let {
-                    Log.d("DetailViewModel", "Adding ThreadEndTime to list: $it")
                     progressivelyLoadedContent.add(DetailContent.ThreadEndTime(id = "thread_end_time_${itemIdCounter++}", endTime = it))
                 }
 
                 _detailContent.postValue(progressivelyLoadedContent.toList())
                 _isLoading.value = false
 
-                val allPromptResults = promptJobs.awaitAll()
+                // Launch a new coroutine for background processing of prompts, final UI update, and caching
+                viewModelScope.launch(Dispatchers.Default) { // Start on Default for awaitAll and list processing
+                    try {
+                        val allPromptResults = promptJobs.awaitAll()
 
-                val finalContentListForCache = progressivelyLoadedContent.toMutableList()
-                allPromptResults.forEach { (index, prompt) ->
-                    if (index < finalContentListForCache.size) {
-                        val itemToUpdate = finalContentListForCache[index]
-                        finalContentListForCache[index] = when (itemToUpdate) {
-                            is DetailContent.Image -> itemToUpdate.copy(prompt = prompt)
-                            is DetailContent.Video -> itemToUpdate.copy(prompt = prompt)
-                            else -> itemToUpdate
+                        // Create the final list with prompts, based on the initially displayed content
+                        val finalListWithPrompts = progressivelyLoadedContent.toMutableList()
+                        allPromptResults.forEach { (index, prompt) ->
+                            if (index < finalListWithPrompts.size) { // Check bounds
+                                val itemToUpdate = finalListWithPrompts[index]
+                                finalListWithPrompts[index] = when (itemToUpdate) {
+                                    is DetailContent.Image -> itemToUpdate.copy(prompt = prompt)
+                                    is DetailContent.Video -> itemToUpdate.copy(prompt = prompt)
+                                    else -> {
+                                         if (itemToUpdate !is DetailContent.Text && itemToUpdate !is DetailContent.ThreadEndTime) {
+                                            Log.w("DetailViewModel", "BG Update: Attempted to update non-media item at index $index with prompt.")
+                                         }
+                                         itemToUpdate
+                                    }
+                                }
+                            } else {
+                                Log.w("DetailViewModel", "BG Update: Index $index out of bounds for finalListWithPrompts. Size: ${finalListWithPrompts.size}")
+                            }
                         }
-                    }
-                }
-                // Add thread end time to cache list as well
-                // This check ensures we don't add a duplicate if it was already in progressivelyLoadedContent
-                threadEndTime?.let {
-                    if (!finalContentListForCache.any { item -> item is DetailContent.ThreadEndTime && item.endTime == it }) {
-                         finalContentListForCache.add(DetailContent.ThreadEndTime(id = "thread_end_time_cache_${itemIdCounter++}", endTime = it))
-                    }
-                }
 
+                        // Update UI on the main thread with the content including all fetched prompts
+                        withContext(Dispatchers.Main) {
+                            _detailContent.postValue(finalListWithPrompts.toList())
+                        }
 
-                withContext(Dispatchers.IO) {
-                    cacheManager.saveDetails(url, finalContentListForCache.toList())
+                        // Then, cache this same list on IO thread
+                        withContext(Dispatchers.IO) {
+                            cacheManager.saveDetails(url, finalListWithPrompts.toList())
+                        }
+                        Log.d("DetailViewModel", "Background prompt processing, final UI update, and caching completed for $url.")
+                    } catch (e: Exception) {
+                        Log.e("DetailViewModel", "Error in background prompt processing, UI update, or caching for $url", e)
+                    }
                 }
 
             } catch (e: Exception) {
                 _error.value = "詳細の取得に失敗しました: ${e.message}"
                 Log.e("DetailViewModel", "Error fetching details for $url", e)
-                _isLoading.value = false
+                _isLoading.value = false // Ensure loading is stopped on error
             }
         }
     }
@@ -219,7 +204,6 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
         val url = currentUrl
         if (url == null) {
             _error.value = "「そうだね」の投稿に失敗しました: 対象のURLが不明です。"
-            // _isLoading.value = false; //isLoading may not be true here, let UI decide
             return
         }
 
