@@ -361,10 +361,22 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         private val promptTextView: TextView = view.findViewById(R.id.promptTextView)
 
         fun bind(item: DetailContent.Image, searchQuery: String?) {
+            Log.d("DetailAdapter", "Binding image: ${item.imageUrl}, Prompt: ${item.prompt}") // ログ追加
             imageView.load(item.imageUrl) {
                 crossfade(true)
                 placeholder(R.drawable.ic_launcher_background) // Consider using a more specific placeholder
                 error(android.R.drawable.ic_dialog_alert) // Consider using a more specific error drawable
+                listener( // Coil の listener を追加
+                    onStart = { _ ->
+                        Log.d("DetailAdapter_Coil", "Image load START for: ${item.imageUrl}")
+                    },
+                    onSuccess = { _, metadata ->
+                        Log.d("DetailAdapter_Coil", "Image load SUCCESS for: ${item.imageUrl}. Source: ${metadata.dataSource}")
+                    },
+                    onError = { _, result ->
+                        Log.e("DetailAdapter_Coil", "Image load ERROR for: ${item.imageUrl}. Error: ${result.throwable}")
+                    }
+                )
                 size(ViewSizeResolver(imageView)) // Changed from Size.ORIGINAL
             }
 
@@ -459,11 +471,14 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         fun bind(item: DetailContent.Video, searchQuery: String?) {
             releasePlayer()
             val context = itemView.context
+            Log.d("DetailAdapter", "Binding video: ${item.videoUrl}, Prompt: ${item.prompt}") // ログ追加
             exoPlayer = ExoPlayer.Builder(context).build().also { player ->
                 playerView.player = player
                 val mediaItem = MediaItem.fromUri(item.videoUrl)
                 player.setMediaItem(mediaItem)
                 player.playWhenReady = false
+                // Add ExoPlayer listener for more detailed logging if needed
+                // player.addListener(object : Player.Listener { ... })
                 player.prepare()
             }
 
