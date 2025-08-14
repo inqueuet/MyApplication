@@ -25,5 +25,8 @@
     <string name="error_file_too_large_format">ファイルサイズが大きすぎます (最大 %.1f MB)</string>
     <string name="label_attachment">添付ファイル</string>
 
+    <string name="displayed_image_description">Displayed image</string>
+    <string name="prompt_info_not_found">Prompt information not found.</string>
+    <string name="copy_prompt">プロンプトをコピー</string>
     <!-- <string name="reload">Reload</string> -->
 </resources>

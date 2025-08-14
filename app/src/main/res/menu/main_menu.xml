@@ -30,4 +30,10 @@
         android:icon="@drawable/action_image_edit"
         android:title="画像編集"
         app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_browse_local_images"
+        android:icon="@drawable/ic_menu_gallery"
+        android:title="ローカル画像を開く"
+        app:showAsAction="never" />
 </menu>

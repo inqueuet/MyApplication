@@ -98,7 +98,7 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                             progressivelyLoadedContent.add(mediaContent)
                             val deferredPrompt = async(Dispatchers.IO) {
                                 try {
-                                    Pair(itemIndexInList, MetadataExtractor.extract(absoluteUrl))
+                                    Pair(itemIndexInList, MetadataExtractor.extract(getApplication(), absoluteUrl))
                                 } catch (e: Exception) {
                                     Log.w("DetailViewModel", "Failed to extract metadata for $absoluteUrl", e)
                                     Pair(itemIndexInList, null as String?)

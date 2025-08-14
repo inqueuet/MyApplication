@@ -1,5 +1,7 @@
 package com.example.myapplication
 
+import android.content.Context // 追加
+import android.net.Uri // 追加
 import androidx.exifinterface.media.ExifInterface
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
@@ -22,14 +24,22 @@ object MetadataExtractor {
     private val GSON = Gson()
 
     /**
-     * URLから画像/動画データを取得し、プロンプト情報を抽出する
+     * URLまたはURIから画像/動画データを取得し、プロンプト情報を抽出する
      */
-    suspend fun extract(url: String): String? {
+    suspend fun extract(context: Context, uriOrUrl: String): String? { // Context パラメータを追加し、引数名を変更
         return withContext(Dispatchers.IO) {
             try {
-                val fileBytes = downloadFile(url) ?: return@withContext null
+                val fileBytes = if (uriOrUrl.startsWith("content://")) {
+                    // content URI の場合
+                    context.contentResolver.openInputStream(Uri.parse(uriOrUrl))?.use { inputStream ->
+                        inputStream.readBytes()
+                    }
+                } else {
+                    // HTTP/HTTPS URL の場合
+                    downloadFile(uriOrUrl)
+                } ?: return@withContext null // 読み込めなかった場合は null
 
-                if (url.endsWith(".mp4", ignoreCase = true)) {
+                if (uriOrUrl.endsWith(".mp4", ignoreCase = true)) { // uriOrUrl を使用
                     val mp4Prompt = extractFromMp4(fileBytes)
                     if (!mp4Prompt.isNullOrBlank()) {
                         return@withContext mp4Prompt
@@ -206,7 +216,7 @@ object MetadataExtractor {
                 val unescapedJson = GSON.fromJson(jsonCandidate, String::class.java)
                 val dataMap = GSON.fromJson<Map<String, Any>>(unescapedJson, object : TypeToken<Map<String, Any>>() {}.type)
                 return extractDataFromMap(dataMap)
-            } else { // Direct JSON object (e.g., "prompt": "{"key": "value"}")
+            } else { // Direct JSON object (e.g., "prompt": {"key": "value"})
                  val dataMap = GSON.fromJson<Map<String, Any>>(jsonCandidate, object : TypeToken<Map<String, Any>>() {}.type)
                  return extractDataFromMap(dataMap)
             }

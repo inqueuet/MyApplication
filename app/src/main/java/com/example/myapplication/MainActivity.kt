@@ -1,7 +1,9 @@
 package com.example.myapplication
 
+import android.content.Context // Required for ContentResolver
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.ArrayAdapter
@@ -10,7 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.SearchView // 追加
+import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
@@ -32,6 +34,24 @@ class MainActivity : AppCompatActivity(), SearchView.OnQueryTextListener { // Se
     ) {
         loadAndFetchInitialData()
     }
+
+    private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            lifecycleScope.launch {
+                Log.d("MainActivity", "Selected image URI: $uri")
+                // MetadataExtractor.extract に context を渡すように変更
+                val promptInfo = MetadataExtractor.extract(this@MainActivity, uri.toString())
+                Log.d("MainActivity", "Extracted prompt info: $promptInfo")
+
+                val intent = Intent(this@MainActivity, ImageDisplayActivity::class.java).apply {
+                    putExtra(ImageDisplayActivity.EXTRA_IMAGE_URI, uri.toString())
+                    putExtra(ImageDisplayActivity.EXTRA_PROMPT_INFO, promptInfo)
+                }
+                startActivity(intent)
+            }
+        }
+    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -111,6 +131,10 @@ class MainActivity : AppCompatActivity(), SearchView.OnQueryTextListener { // Se
             R.id.action_image_edit -> {
                 val intent = Intent(this, ImagePickerActivity::class.java)
                 startActivity(intent)
+                true
+            }
+            R.id.action_browse_local_images -> {
+                pickImageLauncher.launch("image/*")
                 true
             }
             else -> super.onOptionsItemSelected(item)

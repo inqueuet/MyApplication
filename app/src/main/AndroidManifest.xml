@@ -45,6 +45,7 @@
         <activity
             android:name=".ImageEditActivity"
             android:label="Edit Image" />
+        <activity android:name=".ImageDisplayActivity" />
     </application>
 
 </manifest>
