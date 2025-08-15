@@ -19,7 +19,6 @@ sealed class ReplyResult {
 
 class ReplyViewModel(application: Application) : AndroidViewModel(application) {
 
-    // ReplyViewModel.kt
     private val repository = ReplyRepository(NetworkModule.okHttpClient, Gson())
 
     private val _replyStatus = MutableLiveData<ReplyResult>()
@@ -31,7 +30,7 @@ class ReplyViewModel(application: Application) : AndroidViewModel(application) {
         name: String?,
         email: String?,
         comment: String,
-        password: String?,
+        password: String?, // このパラメータ名はActivity側と合わせているので変更なし
         selectedFileUri: Uri?,
         isTextOnly: Boolean
     ) {
@@ -44,9 +43,9 @@ class ReplyViewModel(application: Application) : AndroidViewModel(application) {
                         resto = threadId,
                         name = name,
                         email = email,
-                        sub = null,
+                        sub = null, // 題名はUIにないのでnull固定
                         com = comment,
-                        pwd = password,
+                        inputPwd = password, // Repositoryのパラメータ名に合わせて inputPwd に変更
                         upfileUri = selectedFileUri,
                         textOnly = isTextOnly,
                         context = getApplication()

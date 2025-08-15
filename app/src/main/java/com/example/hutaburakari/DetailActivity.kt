@@ -7,30 +7,16 @@ import android.provider.OpenableColumns
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
-// import android.webkit.WebResourceError // No longer needed
-// import android.webkit.WebResourceRequest // No longer needed
-// import android.webkit.WebView // No longer needed
-// import android.webkit.WebViewClient // No longer needed
-// import android.widget.Button // No longer needed
-// import android.widget.EditText // No longer needed
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
-// import androidx.activity.result.ActivityResultLauncher // No longer needed
-// import androidx.activity.result.contract.ActivityResultContracts // No longer needed
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.hutaburakari.databinding.ActivityDetailBinding
-import okhttp3.* // Keep for okHttpCookieJar and okHttpClient if they are used by other features
-// import okhttp3.HttpUrl.Companion.toHttpUrlOrNull // No longer needed directly here
-// import okhttp3.MediaType.Companion.toMediaTypeOrNull // Was for CommentSender
-// import okhttp3.RequestBody.Companion.toRequestBody // Was for CommentSender
-// import java.io.IOException // No longer directly used here
-// import java.nio.charset.Charset // No longer directly used here
+import okhttp3.*
 import java.util.ArrayDeque
-import java.util.concurrent.TimeUnit
 import android.text.Html // Html.fromHtml のために必要
 
 class DetailActivity : AppCompatActivity(), SearchManagerCallback {
@@ -46,62 +32,10 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
 
     private lateinit var detailSearchManager: DetailSearchManager
 
-    // File Picker and related UI (Removed as part of comment functionality removal)
-    // private lateinit var filePickerLauncher: ActivityResultLauncher<Array<String>> // Removed
-    // private var selectedFileUri: Uri? = null // Removed
-    // private var textViewSelectedFileName: TextView? = null // Removed
-    // private val maxFileSizeBytes = 8 * 1024 * 1024 // 8MB - Keep if other file uploads exist, remove if only for comments
-    // For now, assume it might be used elsewhere, if not, it can be removed later.
     private val maxFileSizeBytes = 8 * 1024 * 1024 // 8MB, potentially for other features?
-
-    // Background WebView and Submission Process (Removed)
-    // private var backgroundWebView: WebView? = null // Removed
-
-    // private var commentFormDataMap: MutableMap<String, Any?> = mutableMapOf() // Removed
-
-    private val okHttpCookieJar: CookieJar = object : CookieJar {
-        private val cookieStore = mutableMapOf<String, MutableList<Cookie>>()
-
-        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-            val host = url.host
-            val currentCookies = cookieStore.getOrPut(host) { mutableListOf() }
-            cookies.forEach { newCookie ->
-                currentCookies.removeAll { it.name == newCookie.name }
-            }
-            currentCookies.addAll(cookies)
-            Log.d("DetailActivity_OkHttpCookieJar", "Saved cookies for $host: ${cookieStore[host]}")
-            val webViewCookieManager = android.webkit.CookieManager.getInstance()
-            cookies.forEach { cookie ->
-                val cookieString = cookie.toString()
-                webViewCookieManager.setCookie(url.toString(), cookieString)
-            }
-            webViewCookieManager.flush()
-        }
-
-        override fun loadForRequest(url: HttpUrl): List<Cookie> {
-            val host = url.host
-            val storedCookies = cookieStore[host] ?: emptyList()
-            val validCookies = storedCookies.filter { it.expiresAt > System.currentTimeMillis() }
-            Log.d("DetailActivity_OkHttpCookieJar", "Loading cookies for $host (found ${validCookies.size}/${storedCookies.size}): $validCookies")
-            return validCookies
-        }
-    }
-
-    private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .cookieJar(okHttpCookieJar)
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
 
     companion object {
         const val EXTRA_URL = "extra_url"
-        // Constants related to comments removed
-        // const val KEY_NAME = "name"
-        // const val KEY_EMAIL = "email"
-        // const val KEY_SUBJECT = "subject"
-        // const val KEY_COMMENT = "comment"
-        // const val KEY_SELECTED_FILE_URI = "selectedFileUri"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -130,8 +64,6 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
         observeViewModel()
         viewModel.fetchDetails(currentUrl!!)
         detailSearchManager.setupSearchNavigation()
-
-        // filePickerLauncher initialization removed
 
         val onBackPressedCallback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -162,16 +94,9 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
         }
     }
 
-    // initializeBackgroundWebView method removed
-
-    // resetCommentSubmissionState method removed
-
-    // handleCommentSubmissionSuccess method removed
-
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.detail_menu, menu)
         detailSearchManager.setupSearch(menu)
-        // menu.findItem(R.id.action_write)?.isVisible = false // This line can be reactivated if you want to explicitly hide the option
         return true
     }
 
@@ -179,13 +104,18 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
         return when (item.itemId) {
             R.id.action_reply -> {
                 currentUrl?.let { url ->
-                    // スレッドIDをURLから抽出 (例: .../res/12345.htm -> 12345)
                     val threadId = url.substringAfterLast("/").substringBefore(".htm")
-                    val boardUrl = url.substringBeforeLast("/").substringBeforeLast("/") + "/futaba.php" // 例: https://may.2chan.net/b/futaba.php
+                    // 正しい boardUrl の生成
+                    val boardUrl = url.substringBeforeLast("/").substringBeforeLast("/") + "/" // 末尾にスラッシュを追加
+                    
+                    Log.d("DetailActivity", "Action Reply: Thread ID: $threadId, Original currentUrl: $url")
+                    Log.d("DetailActivity", "Action Reply: Generated boardUrl for ReplyActivity: $boardUrl")
+                    Log.d("DetailActivity", "Action Reply: Thread Title: ${binding.toolbarTitle.text.toString()}")
+
                     val intent = Intent(this, ReplyActivity::class.java).apply {
                         putExtra(ReplyActivity.EXTRA_THREAD_ID, threadId)
                         putExtra(ReplyActivity.EXTRA_THREAD_TITLE, binding.toolbarTitle.text.toString())
-                        putExtra(ReplyActivity.EXTRA_BOARD_URL, boardUrl) // ボードのベースURLも渡す
+                        putExtra(ReplyActivity.EXTRA_BOARD_URL, boardUrl)
                     }
                     startActivity(intent)
                 }
@@ -226,7 +156,6 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
     }
 
     override fun onDestroy() {
-        // backgroundWebView related cleanup removed
         super.onDestroy()
     }
 
@@ -280,6 +209,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
             layoutManager = this@DetailActivity.layoutManager
             adapter = detailAdapter
             itemAnimator = null
+            setItemViewCacheSize(100) // Add this line
         }
     }
 
