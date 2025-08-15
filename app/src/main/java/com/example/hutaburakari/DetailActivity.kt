@@ -1,9 +1,7 @@
 package com.example.hutaburakari
 
 import android.content.Intent // Intent をインポート
-import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
@@ -15,7 +13,6 @@ import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.hutaburakari.databinding.ActivityDetailBinding
-import okhttp3.*
 import java.util.ArrayDeque
 import android.text.Html // Html.fromHtml のために必要
 
@@ -31,8 +28,6 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
     private val scrollHistory = ArrayDeque<Pair<Int, Int>>(2)
 
     private lateinit var detailSearchManager: DetailSearchManager
-
-    private val maxFileSizeBytes = 8 * 1024 * 1024 // 8MB, potentially for other features?
 
     companion object {
         const val EXTRA_URL = "extra_url"
@@ -110,7 +105,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
                     
                     Log.d("DetailActivity", "Action Reply: Thread ID: $threadId, Original currentUrl: $url")
                     Log.d("DetailActivity", "Action Reply: Generated boardUrl for ReplyActivity: $boardUrl")
-                    Log.d("DetailActivity", "Action Reply: Thread Title: ${binding.toolbarTitle.text.toString()}")
+                    Log.d("DetailActivity", "Action Reply: Thread Title: ${binding.toolbarTitle.text}")
 
                     val intent = Intent(this, ReplyActivity::class.java).apply {
                         putExtra(ReplyActivity.EXTRA_THREAD_ID, threadId)
@@ -257,38 +252,6 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
             val offset = firstVisibleItemView?.top ?: 0
             scrollPositionStore.saveScrollState(url, firstVisibleItemPosition, offset)
         }
-    }
-
-    private fun getFileNameFromUri(uri: Uri): String? {
-        var fileNameResult: String? = null
-        try {
-            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val displayNameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (displayNameIndex != -1) {
-                        fileNameResult = cursor.getString(displayNameIndex)
-                    } else {
-                        Log.w("DetailActivity", "Column OpenableColumns.DISPLAY_NAME not found in getFileNameFromUri.")
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("DetailActivity", "Error getting file name from ContentResolver for URI $uri", e)
-        }
-        if (fileNameResult == null) {
-            fileNameResult = uri.path?.substringAfterLast('/')
-            if (fileNameResult.isNullOrEmpty()) Log.w("DetailActivity", "Could not derive filename from URI path: $uri")
-        }
-        return fileNameResult
-    }
-
-    private fun getFileSize(uri: Uri): Long? {
-        try {
-            contentResolver.openFileDescriptor(uri, "r")?.use { pfd -> return pfd.statSize }
-        } catch (e: Exception) {
-            Log.e("DetailActivity", "Error getting file size for URI: $uri", e)
-        }
-        return null
     }
 
     private fun showToastOnUiThread(message: String, duration: Int) {

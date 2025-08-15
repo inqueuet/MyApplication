@@ -26,7 +26,6 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
             android:theme="@style/Theme.MyApplication">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -52,6 +51,11 @@
             android:name=".ImageEditActivity"
             android:label="Edit Image" />
         <activity android:name=".ImageDisplayActivity" />
+        <activity
+            android:name=".MediaViewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication">
+        </activity>
     </application>
 
 </manifest>

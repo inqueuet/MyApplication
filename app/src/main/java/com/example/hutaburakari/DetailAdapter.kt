@@ -3,6 +3,7 @@ package com.example.hutaburakari
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent // Intent をインポート
 import android.graphics.Color
 import android.text.Html
 import android.text.Spannable
@@ -43,10 +44,10 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
     var onSodaNeClickListener: ((resNum: String) -> Unit)? = null
     private var currentSearchQuery: String? = null
 
-    private val fileNamePattern = Pattern.compile("\\b([a-zA-Z0-9_.-]+\\.(?:jpg|jpeg|png|gif|mp4|webm|mov|avi|flv|mkv))\\b", Pattern.CASE_INSENSITIVE)
-    private val resNumPatternOriginal = Pattern.compile("No\\.(\\d+)") // 元のレス番号抽出用
+    private val fileNamePattern = Pattern.compile("""\b([a-zA-Z0-9_.-]+\.(?:jpg|jpeg|png|gif|mp4|webm|mov|avi|flv|mkv))\b""", Pattern.CASE_INSENSITIVE)
+    private val resNumPatternOriginal = Pattern.compile("""No\.(\d+)""") // 元のレス番号抽出用
     // ★「そうだねXX」または「No.数字の後に続く+」のパターンにマッチ
-    private val sodaNePattern = Pattern.compile("(そうだね\\d*)|(No\\.\\d+\\s*([+＋]))")
+    private val sodaNePattern = Pattern.compile("""(そうだね\d*)|(No\.\d+\s*([+＋]))""")
 
 
     fun setSearchQuery(query: String?) {
@@ -62,6 +63,15 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         const val VIEW_TYPE_IMAGE = 2
         const val VIEW_TYPE_VIDEO = 3
         const val VIEW_TYPE_THREAD_END_TIME = 4 // New ViewType
+
+        // MediaViewActivity 用の定数
+        const val EXTRA_TYPE = "EXTRA_TYPE"
+        const val EXTRA_URL = "EXTRA_URL"
+        const val EXTRA_TEXT = "EXTRA_TEXT" // プロンプトやテキスト表示用
+        // const val EXTRA_PROMPT = "EXTRA_PROMPT" // EXTRA_TEXT に統一するためコメントアウト
+        const val TYPE_IMAGE = "image"
+        const val TYPE_VIDEO = "video"
+        const val TYPE_TEXT = "text"
     }
 
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
@@ -186,33 +196,25 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 while (sodaNeMatcher.find()) {
                     var spanStart = -1
                     var spanEnd = -1
-                    // val clickableResNum = mainResNum // Default to mainResNum for the click (already have mainResNum)
                     var logMessage = ""
 
                     val matchedSodaNeWithDigits = sodaNeMatcher.group(1) // (そうだね\d*)
                     val matchedNoDotPatternWithPlus = sodaNeMatcher.group(2) // (No\.\d+\s*([+＋]))
-                    // group(3) would be ([+＋]) from the second part
 
                     if (matchedSodaNeWithDigits != null) {
                         spanStart = sodaNeMatcher.start(1)
                         spanEnd = sodaNeMatcher.end(1)
-                        // For "そうだね", the click refers to mainResNum
                         logMessage = "Found 'そうだね': '$matchedSodaNeWithDigits' for mainResNum: '$mainResNum'. Clickable Range: $spanStart-$spanEnd"
                     } else if (matchedNoDotPatternWithPlus != null) {
-                        // This matched "No.XXX +"
-                        // We need to ensure that the No.XXX part corresponds to the current item's mainResNum
-                        val tempResNumPattern = Pattern.compile("No\\.(\\d+)") // To extract number from matchedNoDotPatternWithPlus
+                        val tempResNumPattern = Pattern.compile("No\\.(\\d+)")
                         val tempMatcher = tempResNumPattern.matcher(matchedNoDotPatternWithPlus)
                         if (tempMatcher.find()) {
                             val numInPlusContext = tempMatcher.group(1)
                             if (numInPlusContext == mainResNum) {
-                                // The "No.XXX" part matches the item's mainResNum.
-                                // The clickable span should be only on the "+"
-                                val actualPlusSign = sodaNeMatcher.group(3) // This is the captured + or ＋
+                                val actualPlusSign = sodaNeMatcher.group(3)
                                 if (actualPlusSign != null) {
                                     spanStart = sodaNeMatcher.start(3)
                                     spanEnd = sodaNeMatcher.end(3)
-                                    // The click still refers to mainResNum
                                     logMessage = "Found '+': '$actualPlusSign' (from '$matchedNoDotPatternWithPlus') associated with mainResNum: '$mainResNum'. Clickable Range: $spanStart-$spanEnd"
                                 } else {
                                     Log.w("TextViewHolder", "Error: Matched NoPlusContainer '$matchedNoDotPatternWithPlus' but couldn't get group(3) for '+'. MainResNum: '$mainResNum'. Skipping.")
@@ -220,7 +222,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                                 }
                             } else {
                                 Log.d("TextViewHolder", "Found '$matchedNoDotPatternWithPlus', but its resNum '$numInPlusContext' does NOT match current item's mainResNum '$mainResNum'. Skipping span for this match.")
-                                continue // Skip making this specific "+" clickable as it's for a different resNum
+                                continue
                             }
                         } else {
                              Log.w("TextViewHolder", "Error: Could not extract resNum from NoPlusContainer '$matchedNoDotPatternWithPlus' even though it matched. MainResNum: '$mainResNum'. Skipping.")
@@ -231,7 +233,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                     if (spanStart != -1 && spanEnd != -1) {
                         Log.d("TextViewHolder", logMessage) 
                         spannableBuilder.setSpan(
-                            SodaNeClickableSpan(mainResNum, onSodaNeClickListener), // Use mainResNum
+                            SodaNeClickableSpan(mainResNum, onSodaNeClickListener),
                             spanStart,
                             spanEnd,
                             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
@@ -282,12 +284,10 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
 
                         val layout = widget.layout
                         val line = layout.getLineForVertical(y)
-                        // Ensure the click is within the bounds of the text
                         if (line < 0 || line >= layout.lineCount) {
                             return super.onTouchEvent(widget, buffer, event)
                         }
                         val off = layout.getOffsetForHorizontal(line, x.toFloat())
-                        // Ensure the offset is within the bounds of the buffer
                         if (off < 0 || off > buffer.length) {
                              return super.onTouchEvent(widget, buffer, event)
                         }
@@ -297,16 +297,14 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                         if (spans.isNotEmpty()) {
                             Log.d("CustomLinkMovement", "Found ${spans.size} ClickableSpan(s) at offset $off.")
 
-                            // Priority 1: Handle SodaNeClickableSpan
                             for (span in spans) {
                                 if (span is SodaNeClickableSpan) {
                                     Log.d("CustomLinkMovement", "Handling SodaNeClickableSpan: $span")
                                     span.onClick(widget)
-                                    return true // Event handled
+                                    return true
                                 }
                             }
 
-                            // Priority 2: Handle other ClickableSpans (e.g., URLSpan generated by Html.fromHtml)
                             for (span in spans) { 
                                 if (span is URLSpan) {
                                     val url = span.url
@@ -361,12 +359,12 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         private val promptTextView: TextView = view.findViewById(R.id.promptTextView)
 
         fun bind(item: DetailContent.Image, searchQuery: String?) {
-            Log.d("DetailAdapter", "Binding image: ${item.imageUrl}, Prompt: ${item.prompt}") // ログ追加
+            Log.d("DetailAdapter", "Binding image: ${item.imageUrl}, Prompt: ${item.prompt}")
             imageView.load(item.imageUrl) {
                 crossfade(true)
-                placeholder(R.drawable.ic_launcher_background) // Consider using a more specific placeholder
-                error(android.R.drawable.ic_dialog_alert) // Consider using a more specific error drawable
-                listener( // Coil の listener を追加
+                placeholder(R.drawable.ic_launcher_background)
+                error(android.R.drawable.ic_dialog_alert)
+                listener(
                     onStart = { _ ->
                         Log.d("DetailAdapter_Coil", "Image load START for: ${item.imageUrl}")
                     },
@@ -377,7 +375,16 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                         Log.e("DetailAdapter_Coil", "Image load ERROR for: ${item.imageUrl}. Error: ${result.throwable}")
                     }
                 )
-                size(ViewSizeResolver(imageView)) // Changed from Size.ORIGINAL
+                size(ViewSizeResolver(imageView))
+            }
+
+            imageView.setOnClickListener {
+                val context = itemView.context
+                val intent = Intent(context, MediaViewActivity::class.java)
+                intent.putExtra(EXTRA_TYPE, TYPE_IMAGE)
+                intent.putExtra(EXTRA_URL, item.imageUrl)
+                item.prompt?.let { intent.putExtra(EXTRA_TEXT, it) } // プロンプトを EXTRA_TEXT で渡す
+                context.startActivity(intent)
             }
 
             if (!item.prompt.isNullOrBlank()) {
@@ -416,9 +423,18 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 }
                 promptTextView.text = spannableBuilder
                 promptTextView.movementMethod = LinkMovementMethod.getInstance()
+
+                promptTextView.setOnClickListener {
+                    val context = itemView.context
+                    val intent = Intent(context, MediaViewActivity::class.java)
+                    intent.putExtra(EXTRA_TYPE, TYPE_TEXT)
+                    intent.putExtra(EXTRA_TEXT, promptText)
+                    context.startActivity(intent)
+                }
             } else {
                 promptTextView.isVisible = false
                 promptTextView.text = null
+                promptTextView.setOnClickListener(null)
             }
 
             imageView.setOnLongClickListener {
@@ -471,16 +487,24 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         fun bind(item: DetailContent.Video, searchQuery: String?) {
             releasePlayer()
             val context = itemView.context
-            Log.d("DetailAdapter", "Binding video: ${item.videoUrl}, Prompt: ${item.prompt}") // ログ追加
+            Log.d("DetailAdapter", "Binding video: ${item.videoUrl}, Prompt: ${item.prompt}")
             exoPlayer = ExoPlayer.Builder(context).build().also { player ->
                 playerView.player = player
                 val mediaItem = MediaItem.fromUri(item.videoUrl)
                 player.setMediaItem(mediaItem)
                 player.playWhenReady = false
-                // Add ExoPlayer listener for more detailed logging if needed
-                // player.addListener(object : Player.Listener { ... })
                 player.prepare()
             }
+
+            playerView.setOnClickListener { 
+                val context = itemView.context
+                val intent = Intent(context, MediaViewActivity::class.java)
+                intent.putExtra(EXTRA_TYPE, TYPE_VIDEO)
+                intent.putExtra(EXTRA_URL, item.videoUrl)
+                item.prompt?.let { intent.putExtra(EXTRA_TEXT, it) } // プロンプトを EXTRA_TEXT で渡す
+                context.startActivity(intent)
+            }
+
 
             if (!item.prompt.isNullOrBlank()) {
                 promptTextView.isVisible = true
@@ -518,9 +542,18 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 }
                 promptTextView.text = spannableBuilder
                 promptTextView.movementMethod = LinkMovementMethod.getInstance()
+
+                promptTextView.setOnClickListener {
+                    val context = itemView.context
+                    val intent = Intent(context, MediaViewActivity::class.java)
+                    intent.putExtra(EXTRA_TYPE, TYPE_TEXT)
+                    intent.putExtra(EXTRA_TEXT, promptText)
+                    context.startActivity(intent)
+                }
             } else {
                 promptTextView.isVisible = false
                 promptTextView.text = null
+                promptTextView.setOnClickListener(null)
             }
 
             playerView.setOnLongClickListener {
@@ -574,7 +607,6 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
 
         fun bind(item: DetailContent.ThreadEndTime) {
             endTimeTextView.text = item.endTime
-            // Optionally, add long click listener for copy, similar to TextViewHolder
             endTimeTextView.setOnLongClickListener {
                 val context = itemView.context
                 AlertDialog.Builder(context)
@@ -592,7 +624,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
 
     class SodaNeClickableSpan(
         private val resNum: String,
-        private val listener: ((String) -> Unit)? // Nullableに変更
+        private val listener: ((String) -> Unit)?
     ) : ClickableSpan() {
         override fun onClick(widget: View) {
             Log.d("SodaNeClickableSpan", "onClick called with resNum: $resNum")
@@ -601,8 +633,8 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
 
         override fun updateDrawState(ds: TextPaint) {
             super.updateDrawState(ds)
-            ds.isUnderlineText = true // 例: 下線をつける
-            ds.color = Color.MAGENTA    // 例: 色を変える (BLUEだと通常のリンクと区別しにくいのでMAGENTAに)
+            ds.isUnderlineText = true
+            ds.color = Color.MAGENTA
         }
     }
 
@@ -611,14 +643,14 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
             return when {
                 oldItem is DetailContent.Image && newItem is DetailContent.Image -> oldItem.imageUrl == newItem.imageUrl
                 oldItem is DetailContent.Video && newItem is DetailContent.Video -> oldItem.videoUrl == newItem.videoUrl
-                oldItem is DetailContent.Text && newItem is DetailContent.Text -> oldItem.id == newItem.id // Use unique ID for Text
-                oldItem is DetailContent.ThreadEndTime && newItem is DetailContent.ThreadEndTime -> oldItem.id == newItem.id // Use unique ID for ThreadEndTime
-                else -> oldItem.javaClass == newItem.javaClass && oldItem.id == newItem.id // Fallback for other types if they have IDs
+                oldItem is DetailContent.Text && newItem is DetailContent.Text -> oldItem.id == newItem.id
+                oldItem is DetailContent.ThreadEndTime && newItem is DetailContent.ThreadEndTime -> oldItem.id == newItem.id
+                else -> oldItem.javaClass == newItem.javaClass && oldItem.id == newItem.id
             }
         }
 
         override fun areContentsTheSame(oldItem: DetailContent, newItem: DetailContent): Boolean {
-            return oldItem == newItem // Data classes compare by content automatically
+            return oldItem == newItem
         }
     }
 }
