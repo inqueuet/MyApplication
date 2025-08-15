@@ -32,6 +32,7 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
     private var currentUrl: String? = null
 
     fun fetchDetails(url: String, forceRefresh: Boolean = false) {
+        Log.d("DetailViewModel", "fetchDetails: Called with forceRefresh: $forceRefresh for URL: $url") // Added log
         viewModelScope.launch {
             this@DetailViewModel.currentUrl = url
             _isLoading.value = true
@@ -55,6 +56,10 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                     NetworkClient.fetchDocument(getApplication(), url)
                 }
                 val contentBlocks = document.select("div.thre, table:has(td.rtd)")
+                Log.d("DetailViewModel", "fetchDetails: Found ${contentBlocks.size} content blocks. forceRefresh: $forceRefresh, URL: $url")
+                if (contentBlocks.isNotEmpty()) {
+                    Log.d("DetailViewModel", "fetchDetails: First content block HTML (sample for forceRefresh=$forceRefresh): ${contentBlocks.first()?.outerHtml()?.take(500)}")
+                }
 
                 val progressivelyLoadedContent = mutableListOf<DetailContent>()
                 val promptJobs = mutableListOf<Deferred<Pair<Int, String?>>>()
@@ -62,12 +67,33 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                 _detailContent.postValue(emptyList()) // Initially set empty list or placeholder
 
                 contentBlocks.forEach { block ->
+                    // --- ここから追加 ---
+                    val targetResNumForDebug = "1343546834" // 「そうだね」を押した投稿の番号
+                    val cnoElement = block.select("span.cno").firstOrNull()
+                    val sodElementId = block.select("a.sod").firstOrNull()?.id()
+
+                    var isTargetBlock = false
+                    if (cnoElement != null && cnoElement.text().contains(targetResNumForDebug)) {
+                        isTargetBlock = true
+                    }
+                    if (!isTargetBlock && sodElementId != null && sodElementId == "sd$targetResNumForDebug") {
+                        isTargetBlock = true
+                    }
+                     if (!isTargetBlock && block.attr("data-res") == targetResNumForDebug) {
+                        isTargetBlock = true
+                    }
+
+                    if (isTargetBlock) {
+                        Log.d("DetailViewModel", "fetchDetails: HTML for resNum $targetResNumForDebug (forceRefresh=$forceRefresh, URL=$url): ${block.outerHtml()}")
+                    }
+                    // --- ここまで追加 ---
+
                     val textBlock = block.clone()
                     val mediaLinkForTextExclusion = block.select("a[target=_blank]").firstOrNull { a ->
                         val href = a.attr("href").lowercase()
                         href.endsWith(".png") || href.endsWith(".jpg") || href.endsWith(".jpeg") || href.endsWith(".gif") || href.endsWith(".webp") || href.endsWith(".webm") || href.endsWith(".mp4")
                     }
-                    mediaLinkForTextExclusion?.let { link -> textBlock.select("a[href=\'''${link.attr("href")}\''']").remove() }
+                    mediaLinkForTextExclusion?.let { link -> textBlock.select("a[href=\'\'\'${link.attr("href")}\'\'\']").remove() }
                     val html = textBlock.selectFirst(".rtd")?.html() ?: ""
                     if (html.isNotBlank()) {
                         progressivelyLoadedContent.add(DetailContent.Text(id = "text_${itemIdCounter++}", htmlContent = html))
@@ -122,8 +148,8 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                 // Extract thread end time
                 val scriptElements = document.select("script")
                 var threadEndTime: String? = null
-                val docWriteRegex = Regex("""document\.write\s*\(\s*'(.*?)'\s*\)""" )
-                val timeRegex = Regex("""<span id="contdisp">([^<]+)<\/span>""" )
+                val docWriteRegex = Regex("""document\.write\s*\(\s*'(.*?)'\s*\)""")
+                val timeRegex = Regex("""<span id="contdisp">([^<]+)<\/span>""")
 
                 for (scriptElement in scriptElements) {
                     val scriptData = scriptElement.data()
@@ -217,6 +243,7 @@ class DetailViewModel(application: Application) : AndroidViewModel(application) 
                 val success = NetworkClient.postSodaNe(getApplication(), resNum, url)
                 Log.d("DetailViewModel", "NetworkClient.postSodaNe result: $success")
                 if (success) {
+                    Log.d("DetailViewModel", "postSodaNe: \'success\' is true. Calling fetchDetails for URL: $url") // Added log
                     fetchDetails(url, forceRefresh = true)
                 } else {
                     _error.value = "「そうだね」の投稿に失敗しました。"

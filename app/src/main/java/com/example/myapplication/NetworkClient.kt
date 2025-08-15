@@ -31,7 +31,7 @@ object NetworkClient {
         return withContext(Dispatchers.IO) {
             try {
                 val url = "https://may.2chan.net/sd.php?b.$resNum"
-                Log.d("NetworkClient", "postSodaNe: Attempting to POST to URL: $url with referer: $referer")
+                Log.d("NetworkClient", "postSodaNe: Attempting to GET to URL: $url with referer: $referer") // Changed POST to GET in log
                 val cookieStore = CookieStore(context.applicationContext)
                 val storedCookies = cookieStore.loadCookies()
                 Log.d("NetworkClient", "postSodaNe: Cookies being sent: $storedCookies")
@@ -44,7 +44,7 @@ object NetworkClient {
                     .header("connection", "keep-alive")
                     .header("host", "may.2chan.net")
                     .header("referer", referer)
-                    .method(Connection.Method.POST)
+                    .method(Connection.Method.GET) // Changed to GET
                     .ignoreContentType(true) 
                     .execute()
                 
