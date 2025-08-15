@@ -1,69 +1,58 @@
 package com.example.myapplication
 
+import android.app.AlertDialog
 import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns // getFileName で使用
-import android.text.Html // performSearch, setupRecyclerView で使用
+import android.provider.OpenableColumns
 import android.util.Log
-import android.view.LayoutInflater // showAddCommentDialog で使用
-import android.view.Menu // onCreateOptionsMenu で使用
-import android.view.MenuItem // onOptionsItemSelected, onCreateOptionsMenu で使用
-import android.view.View // onCreateOptionsMenu, performSearch, clearSearchAndUI で使用
+import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuItem
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button // showAddCommentDialog で使用
-import android.widget.EditText // showAddCommentDialog で使用
+import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.widget.SearchView // onCreateOptionsMenu で使用
-import androidx.core.view.isVisible // observeViewModel, clearSearchAndUI で使用
+import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView // setupRecyclerView, saveCurrentScrollState で使用
+import androidx.recyclerview.widget.RecyclerView
 import com.example.myapplication.databinding.ActivityDetailBinding
 import okhttp3.*
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull // ★★★ 修正: 非推奨APIの代わりにこちらを使用 ★★★
-import okhttp3.MediaType.Companion.toMediaTypeOrNull // sendCommentWithOkHttp で使用
-import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody // sendCommentWithOkHttp で使用
-import java.io.IOException // sendCommentWithOkHttp で使用
-// import java.text.DecimalFormat // 未使用のためコメントアウト
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
+import java.nio.charset.Charset
+import java.util.ArrayDeque
 import java.util.concurrent.TimeUnit
-// import okhttp3.JavaNetCookieJar // Using custom CookieJar for OkHttp now
-import android.app.AlertDialog // showAddCommentDialogで使用
-import java.nio.charset.Charset // Shift_JIS対応のため
-import java.util.ArrayDeque // スクロール履歴で使用
+import android.text.Html // Html.fromHtml のために必要
 
-class DetailActivity : AppCompatActivity() {
+class DetailActivity : AppCompatActivity(), SearchManagerCallback {
 
     private lateinit var binding: ActivityDetailBinding
     private val viewModel: DetailViewModel by viewModels()
-    private lateinit var detailAdapter: DetailAdapter // setupRecyclerViewで使用
-
+    private lateinit var detailAdapter: DetailAdapter
     private lateinit var scrollPositionStore: ScrollPositionStore
     private var currentUrl: String? = null
+    private lateinit var layoutManager: LinearLayoutManager
 
-    private lateinit var layoutManager: LinearLayoutManager // setupRecyclerViewで使用
+    private val scrollHistory = ArrayDeque<Pair<Int, Int>>(2)
 
-    // Scroll history for "back" functionality
-    private val scrollHistory = ArrayDeque<Pair<Int, Int>>(2) // Pair of position and offset
-
-    // Search related variables
-    private var searchView: SearchView? = null // onCreateOptionsMenu, onOptionsItemSelected, saveCurrentScrollStateIfApplicable, clearSearchAndUI で使用
-    private var currentSearchQuery: String? = null // onCreateOptionsMenu, observeViewModel, performSearch, clearSearchAndUI, updateSearchResultsCount で使用
-    private val searchResultPositions = mutableListOf<Int>() // performSearch, clearSearchAndUI, navigateToCurrentHit, setupSearchNavigation, updateSearchResultsCount で使用
-    private var currentSearchHitIndex = -1 // performSearch, clearSearchAndUI, navigateToCurrentHit, setupSearchNavigation, updateSearchResultsCount で使用
+    private lateinit var detailSearchManager: DetailSearchManager
 
     // File Picker and related UI
     private lateinit var filePickerLauncher: ActivityResultLauncher<Array<String>>
     private var selectedFileUri: Uri? = null
     private var textViewSelectedFileName: TextView? = null
-    private val maxFileSizeBytes = 8 * 1024 * 1024 // 8MB (命名規則修正)
+    private val maxFileSizeBytes = 8 * 1024 * 1024 // 8MB
 
     // Background WebView and Submission Process
     private var backgroundWebView: WebView? = null
@@ -79,38 +68,29 @@ class DetailActivity : AppCompatActivity() {
         "baseform", "pthb", "pthc", "pthd", "ptua", "scsz", "hash", "chrenc"
     )
 
-    // Custom CookieJar for OkHttpClient
     private val okHttpCookieJar = object : CookieJar {
         private val cookieStore = mutableMapOf<String, MutableList<Cookie>>()
 
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
             val host = url.host
             val currentCookies = cookieStore.getOrPut(host) { mutableListOf() }
-            // Remove old cookies that match the new ones by name
             cookies.forEach { newCookie ->
                 currentCookies.removeAll { it.name == newCookie.name }
             }
             currentCookies.addAll(cookies)
             Log.d("DetailActivity_OkHttpCookieJar", "Saved cookies for $host: ${cookieStore[host]}")
-
-            // Attempt to sync to WebView's CookieManager as well
             val webViewCookieManager = android.webkit.CookieManager.getInstance()
             cookies.forEach { cookie ->
                 val cookieString = cookie.toString()
-                Log.d("DetailActivity_OkHttpCookieJar", "Syncing to WebView CookieManager: $cookieString for $url")
                 webViewCookieManager.setCookie(url.toString(), cookieString)
             }
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                webViewCookieManager.flush()
-            } else {
-                // For older versions, sync might be less reliable or require different methods
-            }
+            // Lollipop (API 21) 以上では flush() が推奨される
+            webViewCookieManager.flush()
         }
 
         override fun loadForRequest(url: HttpUrl): List<Cookie> {
             val host = url.host
             val storedCookies = cookieStore[host] ?: emptyList()
-            // Filter out expired cookies (simplified check)
             val validCookies = storedCookies.filter { it.expiresAt > System.currentTimeMillis() }
             Log.d("DetailActivity_OkHttpCookieJar", "Loading cookies for $host (found ${validCookies.size}/${storedCookies.size}): $validCookies")
             return validCookies
@@ -118,11 +98,10 @@ class DetailActivity : AppCompatActivity() {
     }
 
     private val okHttpClient = OkHttpClient.Builder()
-        .cookieJar(okHttpCookieJar) // Use our custom CookieJar
+        .cookieJar(okHttpCookieJar)
         .connectTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
-        // .addNetworkInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.HEADERS }) // Optional: for deeper OkHttp logging
         .build()
 
     companion object {
@@ -141,6 +120,7 @@ class DetailActivity : AppCompatActivity() {
         setSupportActionBar(binding.toolbar)
 
         scrollPositionStore = ScrollPositionStore(this)
+        detailSearchManager = DetailSearchManager(binding, this)
 
         val url = intent.getStringExtra(EXTRA_URL)
         val title = intent.getStringExtra("EXTRA_TITLE")
@@ -155,15 +135,15 @@ class DetailActivity : AppCompatActivity() {
         }
 
         setupCustomToolbarElements()
-        setupRecyclerView()
-        observeViewModel()
-        viewModel.fetchDetails(currentUrl!!) // forceRefresh is false by default
-        setupSearchNavigation()
+        setupRecyclerView() // Defined in this class
+        observeViewModel()  // Defined in this class
+        viewModel.fetchDetails(currentUrl!!)
+        detailSearchManager.setupSearchNavigation()
 
         filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri != null) {
-                val fileSize = getFileSize(uri)
-                val fileNameToDisplay = getFileName(uri)
+                val fileSize = getFileSize(uri) // Defined in this class
+                val fileNameToDisplay = getFileName(uri) // Defined in this class
                 if (fileSize != null && fileSize > maxFileSizeBytes) {
                     val maxSizeMB = maxFileSizeBytes / (1024.0 * 1024.0)
                     Toast.makeText(this, getString(R.string.error_file_too_large_format, maxSizeMB), Toast.LENGTH_LONG).show()
@@ -181,6 +161,28 @@ class DetailActivity : AppCompatActivity() {
                 textViewSelectedFileName?.text = getString(R.string.text_no_file_selected)
             }
         }
+
+        val onBackPressedCallback = object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (detailSearchManager.handleOnBackPressed()) {
+                    return
+                }
+                if (scrollHistory.isNotEmpty()) {
+                    val (position, offset) = scrollHistory.removeLast()
+                    if (position >= 0 && position < detailAdapter.itemCount) {
+                        binding.detailRecyclerView.post {
+                            layoutManager.scrollToPositionWithOffset(position, offset)
+                        }
+                    } else {
+                        Toast.makeText(this@DetailActivity, "戻る先の位置が無効です。", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed() 
+                }
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, onBackPressedCallback)
     }
 
     private fun setupCustomToolbarElements() {
@@ -193,7 +195,7 @@ class DetailActivity : AppCompatActivity() {
         if (backgroundWebView == null) {
             Log.d("DetailActivity", "Initializing backgroundWebView.")
             backgroundWebView = WebView(this).apply {
-                settings.javaScriptEnabled = true
+                settings.javaScriptEnabled = true // XSS Warning: Review carefully
                 settings.domStorageEnabled = true
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
@@ -204,9 +206,7 @@ class DetailActivity : AppCompatActivity() {
                             val cookiesHeaderFromWebView = webViewCookieManager.getCookie(url)
                             Log.d("DetailActivity", "Cookies string from backgroundWebView after page finished ($url): '$cookiesHeaderFromWebView'")
 
-                            // Transfer cookies from WebView's CookieManager to OkHttp's CookieJar
                             if (!cookiesHeaderFromWebView.isNullOrEmpty()) {
-                                // ★★★ 修正: HttpUrl.get(url!!) を url!!.toHttpUrlOrNull() に変更 ★★★
                                 val httpUrl = url!!.toHttpUrlOrNull()
                                 if (httpUrl != null) {
                                     cookiesHeaderFromWebView.split(";").forEach { cookieString ->
@@ -225,7 +225,7 @@ class DetailActivity : AppCompatActivity() {
                             currentHiddenFieldStep = 0
                             hiddenFormValues.clear()
                             executeHiddenFieldJsStep(view)
-                        } else if (isSubmissionProcessActive && url != targetPageUrlForFields) {
+                        } else if (isSubmissionProcessActive && url != targetPageUrlForFields) { // This condition might always be true if the first one is false.
                             Log.w("DetailActivity", "WebView navigated to unexpected URL ('$url') during submission, expecting '$targetPageUrlForFields'")
                             resetSubmissionState("ページ準備中に予期せぬURLに遷移: $url")
                         }
@@ -253,30 +253,27 @@ class DetailActivity : AppCompatActivity() {
         }
         if (currentHiddenFieldStep < hiddenFieldSelectors.size) {
             val fieldName = hiddenFieldSelectors[currentHiddenFieldStep]
-            // Ensure single quotes in JS are properly escaped for Kotlin string literals
-            val jsToExecute = "(function() { var el = document.querySelector('input[name=\\'${fieldName}\\']'); return el ? el.value : ''; })();"
+            val jsToExecute = "(function() { var el = document.querySelector('input[name=\'${fieldName}\']'); return el ? el.value : ''; })();"
             Log.d("DetailActivity", "Executing JS for hidden field: $fieldName, JS: $jsToExecute")
             webView.evaluateJavascript(jsToExecute) { result ->
-                // Result might be JSON-encoded (e.g., "\"value\""), so remove surrounding quotes if present.
-                val value = result?.trim()?.removeSurrounding("\"") ?: ""
-                Log.d("DetailActivity", "Hidden field: '$fieldName' = '$value'") // ★★★ ESSENTIAL LOG ★★★
-                hiddenFormValues[fieldName] = value
+                val valueResult = result?.trim()?.removeSurrounding("'''") ?: ""
+                Log.d("DetailActivity", "Hidden field: '$fieldName' = '$valueResult'") // Use valueResult
+                hiddenFormValues[fieldName] = valueResult
                 currentHiddenFieldStep++
                 executeHiddenFieldJsStep(webView)
             }
         } else {
-            Log.d("DetailActivity", "All hidden fields collected: $hiddenFormValues") // ★★★ ESSENTIAL LOG ★★★
+            Log.d("DetailActivity", "All hidden fields collected: $hiddenFormValues")
             sendCommentWithOkHttp()
         }
     }
 
-    private fun resetSubmissionState(toastMessage: String? = null) {
-        Log.d("DetailActivity", "Resetting submission state. Message: $toastMessage")
+    private fun resetSubmissionState(message: String? = null) { // Renamed parameter to 'message'
+        Log.d("DetailActivity", "Resetting submission state. Message: $message")
         isSubmissionProcessActive = false
-        // currentHiddenFieldStep = 0; // Already reset before starting executeHiddenFieldJsStep
-        if (toastMessage != null) {
+        if (message != null) {
             runOnUiThread {
-                Toast.makeText(this@DetailActivity, toastMessage, Toast.LENGTH_LONG).show()
+                Toast.makeText(this@DetailActivity, message, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -328,13 +325,13 @@ class DetailActivity : AppCompatActivity() {
                 commentFormDataMap[KEY_EMAIL] = editTextEmail.text.toString()
                 commentFormDataMap[KEY_SUBJECT] = editTextSubject.text.toString()
                 commentFormDataMap[KEY_COMMENT] = editTextComment.text.toString()
-                targetPageUrlForFields = currentUrl // This should be the page where the form is
+                targetPageUrlForFields = currentUrl
                 Log.d("DetailActivity", "AddCommentDialog: Send clicked. Target page for fields: $targetPageUrlForFields")
                 performCommentSubmission()
                 dialog.dismiss()
             }
             .setNegativeButton(R.string.button_cancel) { dialog, _ ->
-                textViewSelectedFileName = null
+                textViewSelectedFileName = null 
                 dialog.cancel()
             }
             .setOnDismissListener {
@@ -356,14 +353,14 @@ class DetailActivity : AppCompatActivity() {
         }
         Log.d("DetailActivity", "Performing comment submission to board ID: $currentBoardId, from URL: $currentUrl, target page for fields: $targetPageUrlForFields")
 
-        initializeBackgroundWebView() // Ensures WebView is ready
+        initializeBackgroundWebView()
         isSubmissionProcessActive = true
-        currentHiddenFieldStep = 0 // Reset step counter for hidden fields
-        hiddenFormValues.clear()   // Clear any previous hidden field values
+        currentHiddenFieldStep = 0
+        hiddenFormValues.clear()
 
         backgroundWebView?.let {
             Log.d("DetailActivity", "Loading URL in backgroundWebView for hidden fields: $targetPageUrlForFields")
-            it.loadUrl(targetPageUrlForFields!!) // Load the page to extract hidden fields
+            it.loadUrl(targetPageUrlForFields!!)
             Toast.makeText(this, "投稿準備中です...", Toast.LENGTH_SHORT).show()
         } ?: run {
             Log.e("DetailActivity", "performCommentSubmission: backgroundWebView is null before loading URL.")
@@ -383,14 +380,14 @@ class DetailActivity : AppCompatActivity() {
         val email = commentFormDataMap[KEY_EMAIL] as? String ?: ""
         val subject = commentFormDataMap[KEY_SUBJECT] as? String ?: ""
         val comment = commentFormDataMap[KEY_COMMENT] as? String ?: ""
-        val currentFileUri = commentFormDataMap[KEY_SELECTED_FILE_URI] as? Uri
+        val currentFileUriForSubmission = commentFormDataMap[KEY_SELECTED_FILE_URI] as? Uri // Renamed to avoid confusion
 
         val multipartBodyBuilder = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("mode", "regist")
             .addFormDataPart("MAX_FILE_SIZE", maxFileSizeBytes.toString())
-            .addFormDataPart("js", "on") // Assume JS is enabled
-            .addFormDataPart("pwd", "")   // Password, if any
+            .addFormDataPart("js", "on")
+            .addFormDataPart("pwd", "")
 
         currentBoardId?.let { multipartBodyBuilder.addFormDataPart("resto", it) }
         multipartBodyBuilder.addFormDataPart("name", name)
@@ -401,42 +398,40 @@ class DetailActivity : AppCompatActivity() {
         Log.d("DetailActivity", "Using collected hiddenFormValues for submission: $hiddenFormValues")
         hiddenFormValues.forEach { (key, value) -> multipartBodyBuilder.addFormDataPart(key, value) }
 
-        if (currentFileUri == null) {
+        if (currentFileUriForSubmission == null) {
             multipartBodyBuilder.addFormDataPart("textonly", "on")
         } else {
-            // File attachment logic
-            val fileName = getFileName(currentFileUri) ?: "attachment_${System.currentTimeMillis()}"
-            val mediaTypeString = contentResolver.getType(currentFileUri)
-            val mediaType = mediaTypeString?.toMediaTypeOrNull() ?: "application/octet-stream".toMediaTypeOrNull()
+            val resolvedFileName = getFileName(currentFileUriForSubmission) ?: "attachment_${System.currentTimeMillis()}"
+            val mediaTypeString = contentResolver.getType(currentFileUriForSubmission)
+            val resolvedMediaType = mediaTypeString?.toMediaTypeOrNull() ?: "application/octet-stream".toMediaTypeOrNull()
             try {
-                contentResolver.openInputStream(currentFileUri)?.use { inputStream ->
-                    val fileBytes = inputStream.readBytes()
-                    val fileRequestBody = fileBytes.toRequestBody(mediaType, 0, fileBytes.size)
-                    multipartBodyBuilder.addFormDataPart("upfile", fileName, fileRequestBody)
-                    Log.d("DetailActivity", "Added file to multipart: $fileName, MediaType: $mediaType, Size: ${fileBytes.size}")
+                contentResolver.openInputStream(currentFileUriForSubmission)?.use { inputStream ->
+                    val fileBytesArray = inputStream.readBytes() // Renamed
+                    val fileRequestBody = fileBytesArray.toRequestBody(resolvedMediaType, 0, fileBytesArray.size)
+                    multipartBodyBuilder.addFormDataPart("upfile", resolvedFileName, fileRequestBody)
+                    Log.d("DetailActivity", "Added file to multipart: $resolvedFileName, MediaType: $resolvedMediaType, Size: ${fileBytesArray.size}")
                 } ?: run {
-                    Log.e("DetailActivity", "Failed to open InputStream for URI: $currentFileUri")
+                    Log.e("DetailActivity", "Failed to open InputStream for URI: $currentFileUriForSubmission")
                     resetSubmissionState("選択されたファイルを開けませんでした。")
-                    return // Exit sendCommentWithOkHttp
+                    return
                 }
             } catch (e: IOException) {
                 Log.e("DetailActivity", "File reading error for OkHttp", e)
                 resetSubmissionState("ファイルの読み込み中にエラーが発生しました: ${e.message}")
-                return // Exit sendCommentWithOkHttp
+                return
             } catch (e: SecurityException) {
                 Log.e("DetailActivity", "File permission error for OkHttp", e)
                 resetSubmissionState("ファイルへのアクセス許可がありません: ${e.message}")
-                return // Exit sendCommentWithOkHttp
+                return
             }
         }
 
         val requestBody = multipartBodyBuilder.build()
-        val submissionUrlString = "https://may.2chan.net/b/futaba.php?guid=on"
-        // ★★★ 修正: HttpUrl.get(submissionUrlString) を submissionUrlString.toHttpUrlOrNull() に変更 ★★★
-        val submissionHttpUrl = submissionUrlString.toHttpUrlOrNull()
+        val currentSubmissionUrlString = "https://may.2chan.net/b/futaba.php?guid=on" // Renamed
+        val submissionHttpUrl = currentSubmissionUrlString.toHttpUrlOrNull()
 
         if (submissionHttpUrl == null) {
-            Log.e("DetailActivity", "Could not parse submission URL: $submissionUrlString")
+            Log.e("DetailActivity", "Could not parse submission URL: $currentSubmissionUrlString")
             resetSubmissionState("内部エラー: 送信URLの解析に失敗しました。")
             return
         }
@@ -444,120 +439,114 @@ class DetailActivity : AppCompatActivity() {
         val requestBuilder = Request.Builder()
             .url(submissionHttpUrl)
             .post(requestBody)
-            targetPageUrlForFields?.let { refererUrl ->
-                requestBuilder.addHeader("Referer", refererUrl)
-                Log.d("DetailActivity", "Added Referer header: $refererUrl")
+        val currentRefererUrl = targetPageUrlForFields // Renamed
+            currentRefererUrl?.let {
+                requestBuilder.addHeader("Referer", it)
+                Log.d("DetailActivity", "Added Referer header: $it")
             }
-        // Cookie header is now automatically handled by OkHttp's CookieJar.
-        // No need to manually add requestBuilder.addHeader("Cookie", cookiesForRequest)
 
         val cookiesForRequestHeader = okHttpCookieJar.loadForRequest(submissionHttpUrl)
         if (cookiesForRequestHeader.isNotEmpty()) {
-            val cookieHeaderValue = cookiesForRequestHeader.joinToString(separator = "; ") { cookie ->
-                // Cookieのname=value形式で結合。属性は含めないのが一般的。
+            val builtCookieHeaderValue = cookiesForRequestHeader.joinToString(separator = "; ") { cookie -> // Renamed
                 "${cookie.name}=${cookie.value}"
             }
-            requestBuilder.addHeader("Cookie", cookieHeaderValue)
-            Log.d("DetailActivity", "Manually added Cookie header: $cookieHeaderValue")
+            requestBuilder.addHeader("Cookie", builtCookieHeaderValue)
+            Log.d("DetailActivity", "Manually added Cookie header: $builtCookieHeaderValue")
         } else {
             Log.d("DetailActivity", "No cookies found in CookieJar to add to header manually.")
         }
 
-        val request = requestBuilder.build()
-        Log.d("DetailActivity", "OkHttpRequest to be sent: Method=${request.method}, URL=${request.url}, Headers=${request.headers}") // ★★★ ESSENTIAL LOG ★★★
-        // For very detailed header logging (if CookieJar content isn't immediately obvious in request.headers):
-        // request.headers.forEach { header -> Log.d("DetailActivity", "OkHttpRequest Header: ${header.first}=${header.second}") }
-
+        val finalRequest = requestBuilder.build() // Renamed
+        Log.d("DetailActivity", "OkHttpRequest to be sent: Method=${finalRequest.method}, URL=${finalRequest.url}, Headers=${finalRequest.headers}")
 
         runOnUiThread { Toast.makeText(this, "コメントを送信中です...", Toast.LENGTH_SHORT).show() }
-        okHttpClient.newCall(request).enqueue(object : Callback {
+        okHttpClient.newCall(finalRequest).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e("DetailActivity", "OkHttp Submission Error: ${e.message}", e)
                 runOnUiThread { resetSubmissionState("送信に失敗しました (ネットワークエラー): ${e.message}") }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                response.use { resp ->
-                    Log.d("DetailActivity", "Response Code: ${resp.code}") // ★★★ ESSENTIAL LOG ★★★
-                    Log.d("DetailActivity", "Response Headers:\n${resp.headers.toMultimap().entries.joinToString("\n") { "${it.key}: ${it.value.joinToString()}" }}") // ★★★ ESSENTIAL LOG (formatted) ★★★
+                response.use { currentResponse -> // Renamed
+                    Log.d("DetailActivity", "Response Code: ${currentResponse.code}")
+                    val headersString = currentResponse.headers.toMultimap().entries.joinToString("\n") { entry -> "${entry.key}: ${entry.value.joinToString()}" }
+                    Log.d("DetailActivity", "Response Headers:\n$headersString")
 
-                    val responseBytes = try { resp.body?.bytes() } catch (e: Exception) { Log.e("DetailActivity", "Error reading response bytes", e); null }
-                    val responseBodyString = responseBytes?.toString(Charset.forName("Shift_JIS")) ?: "null or empty body"
-                    Log.d("DetailActivity", "Response Body (Shift_JIS): $responseBodyString") // ★★★ ESSENTIAL LOG ★★★
+                    val responseBytes = try { currentResponse.body?.bytes() } catch (e: Exception) { Log.e("DetailActivity", "Error reading response bytes", e); null }
+                    val currentResponseBodyString = responseBytes?.toString(Charset.forName("Shift_JIS")) ?: "null or empty body" // Renamed
+                    Log.d("DetailActivity", "Response Body (Shift_JIS): $currentResponseBodyString")
 
-                    if (resp.isSuccessful) {
-                        Log.i("DetailActivity", "OkHttp Submission Success: Code=${resp.code}")
-                        if (responseBodyString.contains("不正な参照元", ignoreCase = true)) {
+                    if (currentResponse.isSuccessful) {
+                        Log.i("DetailActivity", "OkHttp Submission Success: Code=${currentResponse.code}")
+                        if (currentResponseBodyString.contains("不正な参照元", ignoreCase = true)) {
                             runOnUiThread { resetSubmissionState("不正な参照元としてサーバーに拒否されました。Cookieやリクエスト内容を確認してください。") }
-                            return@onResponse
-                        } else if (responseBodyString.contains("秒、投稿できません", ignoreCase = true)) {
+                            return // Changed from return@onResponse
+                        } else if (currentResponseBodyString.contains("秒、投稿できません", ignoreCase = true)) {
                             var waitTimeMessage = "連続投稿制限のため、しばらく投稿できません。"
                             try {
-                                val regex = Regex("""あと(\d+)秒、投稿できません""")
-                                val matchResult = regex.find(responseBodyString)
+                                val regex = Regex("あと(\\d+)秒、投稿できません") // Changed from raw string to escaped string
+                                val matchResult = regex.find(currentResponseBodyString)
                                 if (matchResult != null && matchResult.groupValues.size > 1) {
-                                    val seconds = matchResult.groupValues[1].toInt()
-                                    val minutes = seconds / 60
-                                    waitTimeMessage = if (minutes > 0) {
-                                        "連続投稿制限のため、あと約${minutes}分お待ちください。"
+                                    val waitSeconds = matchResult.groupValues[1].toInt() // Renamed
+                                    val waitMinutes = waitSeconds / 60 // Renamed
+                                    waitTimeMessage = if (waitMinutes > 0) {
+                                        "連続投稿制限のため、あと約${waitMinutes}分お待ちください。"
                                     } else {
-                                        "連続投稿制限のため、あと${seconds}秒お待ちください。"
+                                        "連続投稿制限のため、あと${waitSeconds}秒お待ちください。"
                                     }
                                 }
                             } catch (e: Exception) { Log.w("DetailActivity", "Failed to parse wait time from cooldown message", e) }
                             runOnUiThread { resetSubmissionState(waitTimeMessage) }
-                            return@onResponse
-                        } else if (responseBodyString.contains("あなたのipアドレスからは投稿できません", ignoreCase = true)) {
+                            return // Changed from return@onResponse
+                        } else if (currentResponseBodyString.contains("あなたのipアドレスからは投稿できません", ignoreCase = true)) {
                             runOnUiThread { resetSubmissionState("あなたのIPアドレスからは投稿できません。接続環境を変更して試すか、しばらく時間をおいてください。") }
-                            return@onResponse
-                        } else if (responseBodyString.contains("cookieを有効にしてください", ignoreCase = true)) {
+                            return // Changed from return@onResponse
+                        } else if (currentResponseBodyString.contains("cookieを有効にしてください", ignoreCase = true)) {
                             runOnUiThread { resetSubmissionState("Cookieが無効か、または不足しています。設定を確認し、再度お試しください。") }
-                            return@onResponse
-                        } else if (responseBodyString.contains("ERROR:", ignoreCase = true) ||
-                            responseBodyString.contains("エラー：", ignoreCase = true) ||
-                            responseBodyString.contains("<link rel=\\\"canonical\\\" href=\\\"https://may.2chan.net/b/futaba.htm\\\">", ignoreCase = true) ) {
+                            return // Changed from return@onResponse
+                        } else if (currentResponseBodyString.contains("ERROR:", ignoreCase = true) ||
+                            currentResponseBodyString.contains("エラー：", ignoreCase = true) ||
+                            currentResponseBodyString.contains("<link rel=\"canonical\" href=\"https://may.2chan.net/b/futaba.htm\">", ignoreCase = true) ) {
                             var extractedErrorMessage = "サーバーが投稿を拒否しました。または予期せぬページが返されました。"
-                            if (responseBodyString.isNotEmpty()) {
-                                if (responseBodyString.contains("ERROR:") || responseBodyString.contains("エラー：")) {
-                                    val extracted = responseBodyString.substringAfter("<h1>", "").substringBefore("</h1>", "").trim()
+                            if (currentResponseBodyString.isNotEmpty()) {
+                                if (currentResponseBodyString.contains("ERROR:") || currentResponseBodyString.contains("エラー：")) {
+                                    val extracted = currentResponseBodyString.substringAfter("<h1>", "").substringBefore("</h1>", "").trim()
                                     if (extracted.isNotEmpty()) extractedErrorMessage = extracted
                                     else {
-                                        val extracted2 = responseBodyString.substringAfter("<font color=\\\"#ff0000\\\"><b>", "").substringBefore("</b></font>", "").trim()
+                                        val extracted2 = currentResponseBodyString.substringAfter("<font color=\"#ff0000\"><b>", "").substringBefore("</b></font>", "").trim()
                                         if(extracted2.isNotEmpty()) extractedErrorMessage = extracted2
                                     }
-                                } else if (responseBodyString.contains("<link rel=\\\"canonical\\\" href=\\\"https://may.2chan.net/b/futaba.htm\\\">", ignoreCase = true)) {
+                                } else if (currentResponseBodyString.contains("<link rel=\"canonical\" href=\"https://may.2chan.net/b/futaba.htm\">", ignoreCase = true)) {
                                     extractedErrorMessage = "投稿が受理されず、メインページが返されました。内容を確認してください。"
                                 }
                             }
                             runOnUiThread { resetSubmissionState(extractedErrorMessage) }
-                            return@onResponse
+                            return // Changed from return@onResponse
                         }
-                        // If no specific error messages are found, assume success
                         runOnUiThread {
                             Toast.makeText(this@DetailActivity, "コメントを送信しました。", Toast.LENGTH_LONG).show()
-                            commentFormDataMap.clear() // Clear form data on success
-                            selectedFileUri = null     // Clear selected file URI
-                            resetSubmissionState()     // Reset submission state (no message)
+                            commentFormDataMap.clear() 
+                            selectedFileUri = null     
+                            resetSubmissionState()     
                             currentUrl?.let { urlToRefresh ->
                                 Toast.makeText(this@DetailActivity, "スレッドを再読み込みします...", Toast.LENGTH_SHORT).show()
-                                viewModel.fetchDetails(urlToRefresh, forceRefresh = true) // Refresh content
+                                viewModel.fetchDetails(urlToRefresh, forceRefresh = true) 
                             }
                         }
-                    } else { // Not successful (e.g. 4xx, 5xx errors)
-                        Log.w("DetailActivity", "OkHttp Submission Failed: Code=${resp.code}")
-                        var errorMessage = "送信に失敗しました (サーバーエラーコード: ${resp.code})"
-                        if (responseBodyString.isNotEmpty()) {
-                            Log.w("DetailActivity", "Failed Response Body (Shift_JIS) for Code ${resp.code}:\n$responseBodyString")
-                            // Check for specific error messages in failed responses too
-                            if (responseBodyString.contains("不正な参照元", ignoreCase = true)) {
-                                errorMessage = "不正な参照元としてサーバーに拒否されました (Code ${resp.code})。"
-                            } else if (responseBodyString.contains("cookieを有効にしてください", ignoreCase = true)) {
-                                errorMessage = "Cookieが無効か、または不足しています (Code ${resp.code})。"
-                            } else if (responseBodyString.contains("ERROR:") || responseBodyString.contains("エラー：")) {
-                                val extracted = responseBodyString.substringAfter("<h1>", "").substringBefore("</h1>", "").trim()
+                    } else { 
+                        Log.w("DetailActivity", "OkHttp Submission Failed: Code=${currentResponse.code}")
+                        var errorMessage = "送信に失敗しました (サーバーエラーコード: ${currentResponse.code})"
+                        if (currentResponseBodyString.isNotEmpty()) {
+                            Log.w("DetailActivity", "Failed Response Body (Shift_JIS) for Code ${currentResponse.code}:\n$currentResponseBodyString")
+                            if (currentResponseBodyString.contains("不正な参照元", ignoreCase = true)) {
+                                errorMessage = "不正な参照元としてサーバーに拒否されました (Code ${currentResponse.code})。"
+                            } else if (currentResponseBodyString.contains("cookieを有効にしてください", ignoreCase = true)) {
+                                errorMessage = "Cookieが無効か、または不足しています (Code ${currentResponse.code})。"
+                            } else if (currentResponseBodyString.contains("ERROR:") || currentResponseBodyString.contains("エラー：")) {
+                                val extracted = currentResponseBodyString.substringAfter("<h1>", "").substringBefore("</h1>", "").trim()
                                 if (extracted.isNotEmpty()) errorMessage = extracted
                                 else {
-                                    val extracted2 = responseBodyString.substringAfter("<font color=\\\"#ff0000\\\"><b>", "").substringBefore("</b></font>", "").trim()
+                                    val extracted2 = currentResponseBodyString.substringAfter("<font color=\"#ff0000\"><b>", "").substringBefore("</b></font>", "").trim()
                                     if(extracted2.isNotEmpty()) errorMessage = extracted2
                                 }
                             }
@@ -571,30 +560,7 @@ class DetailActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.detail_menu, menu)
-        val searchItem = menu.findItem(R.id.action_search)
-        searchView = searchItem?.actionView as? SearchView
-        searchView?.queryHint = getString(R.string.search_hint)
-        searchView?.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(query: String?): Boolean {
-                query?.let { performSearch(it) }
-                searchView?.clearFocus()
-                return true
-            }
-            override fun onQueryTextChange(newText: String?): Boolean {
-                if (newText.isNullOrEmpty() && currentSearchQuery != null) { clearSearchAndUI() }
-                return true
-            }
-        })
-        searchItem?.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
-            override fun onMenuItemActionExpand(item: MenuItem): Boolean {
-                binding.searchNavigationControls.visibility = View.VISIBLE
-                return true
-            }
-            override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
-                clearSearchAndUI()
-                return true
-            }
-        })
+        detailSearchManager.setupSearch(menu)
         return true
     }
 
@@ -603,7 +569,7 @@ class DetailActivity : AppCompatActivity() {
             R.id.action_reload -> {
                 currentUrl?.let { urlToRefresh ->
                     saveCurrentScrollStateIfApplicable()
-                    clearSearchAndUI()
+                    detailSearchManager.clearSearch() 
                     scrollHistory.clear()
                     viewModel.fetchDetails(urlToRefresh, forceRefresh = true)
                     Toast.makeText(this, "再読み込みしています...", Toast.LENGTH_SHORT).show()
@@ -644,15 +610,15 @@ class DetailActivity : AppCompatActivity() {
     }
 
     private fun saveCurrentScrollStateIfApplicable() {
-        if (searchView?.isIconified != false && currentUrl != null) {
+        if (!detailSearchManager.isSearchActive() && currentUrl != null) {
             saveCurrentScrollState(currentUrl!!)
         }
     }
 
     private fun setupRecyclerView() {
-        detailAdapter = DetailAdapter()
+        detailAdapter = DetailAdapter() 
         layoutManager = LinearLayoutManager(this@DetailActivity)
-        detailAdapter.onQuoteClickListener = customLabel@{ quotedText ->
+        detailAdapter.onQuoteClickListener = customLabel@{ currentQuotedText -> // Renamed
             val contentList = viewModel.detailContent.value ?: return@customLabel
             val currentFirstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition()
             if (currentFirstVisibleItemPosition != RecyclerView.NO_POSITION) {
@@ -665,16 +631,16 @@ class DetailActivity : AppCompatActivity() {
             }
             val targetPosition = contentList.indexOfFirst { content ->
                 when (content) {
-                    is DetailContent.Text -> Html.fromHtml(content.htmlContent, Html.FROM_HTML_MODE_COMPACT).toString().contains(quotedText, ignoreCase = true)
+                    is DetailContent.Text -> Html.fromHtml(content.htmlContent, Html.FROM_HTML_MODE_COMPACT).toString().contains(currentQuotedText, ignoreCase = true)
                     is DetailContent.Image -> {
-                        (content.fileName?.equals(quotedText, ignoreCase = true) == true ||
-                                content.imageUrl.substringAfterLast('/').equals(quotedText, ignoreCase = true) ||
-                                content.prompt?.contains(quotedText, ignoreCase = true) == true)
+                        (content.fileName?.equals(currentQuotedText, ignoreCase = true) == true ||
+                                content.imageUrl.substringAfterLast('/').equals(currentQuotedText, ignoreCase = true) ||
+                                content.prompt?.contains(currentQuotedText, ignoreCase = true) == true)
                     }
                     is DetailContent.Video -> {
-                        (content.fileName?.equals(quotedText, ignoreCase = true) == true ||
-                                content.videoUrl.substringAfterLast('/').equals(quotedText, ignoreCase = true) ||
-                                content.prompt?.contains(quotedText, ignoreCase = true) == true)
+                        (content.fileName?.equals(currentQuotedText, ignoreCase = true) == true ||
+                                content.videoUrl.substringAfterLast('/').equals(currentQuotedText, ignoreCase = true) ||
+                                content.prompt?.contains(currentQuotedText, ignoreCase = true) == true)
                     }
                     is DetailContent.ThreadEndTime -> false
                 }
@@ -682,7 +648,7 @@ class DetailActivity : AppCompatActivity() {
             if (targetPosition != -1) {
                 binding.detailRecyclerView.smoothScrollToPosition(targetPosition)
             } else {
-                Toast.makeText(this, "引用元が見つかりません: $quotedText", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "引用元が見つかりません: $currentQuotedText", Toast.LENGTH_SHORT).show()
             }
         }
         detailAdapter.onSodaNeClickListener = { resNum ->
@@ -698,16 +664,18 @@ class DetailActivity : AppCompatActivity() {
     private fun observeViewModel() {
         viewModel.isLoading.observe(this) { isLoading ->
             binding.progressBar.isVisible = isLoading
-            binding.detailRecyclerView.isVisible = !isLoading
+            binding.detailRecyclerView.isVisible = !isLoading && !detailSearchManager.isSearchActive() 
         }
         viewModel.detailContent.observe(this) { contentList ->
             val hadPreviousContent = detailAdapter.itemCount > 0
             detailAdapter.submitList(contentList) {
                 if (contentList.isNotEmpty()) {
                     currentUrl?.let { url ->
-                        if (currentSearchQuery != null && searchView?.isIconified == false) {
-                            performSearch(currentSearchQuery!!)
-                        } else {
+                        if (detailSearchManager.getCurrentSearchQuery() != null && detailSearchManager.isSearchViewExpanded()) {
+                            detailSearchManager.getCurrentSearchQuery()?.let { query ->
+                                detailSearchManager.performSearch(query)
+                            }
+                        } else { 
                             if (hadPreviousContent || scrollPositionStore.getScrollState(url).first != 0 || scrollPositionStore.getScrollState(url).second != 0) {
                                 val (position, offset) = scrollPositionStore.getScrollState(url)
                                 if (position >= 0 && position < contentList.size) {
@@ -718,7 +686,9 @@ class DetailActivity : AppCompatActivity() {
                             }
                         }
                     }
-                } else { clearSearchAndUI() }
+                } else {
+                    detailSearchManager.clearSearch() 
+                }
             }
         }
         viewModel.error.observe(this) { errorMessage ->
@@ -737,120 +707,72 @@ class DetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun performSearch(query: String) {
-        currentSearchQuery = query
-        detailAdapter.setSearchQuery(query)
-        searchResultPositions.clear()
-        currentSearchHitIndex = -1
-        val contentList = viewModel.detailContent.value ?: return
-        contentList.forEachIndexed { index, content ->
-            val textToSearch: String? = when (content) {
-                is DetailContent.Text -> Html.fromHtml(content.htmlContent, Html.FROM_HTML_MODE_COMPACT).toString()
-                is DetailContent.Image -> "${content.prompt ?: ""} ${content.fileName ?: ""} ${content.imageUrl.substringAfterLast('/')}"
-                is DetailContent.Video -> "${content.prompt ?: ""} ${content.fileName ?: ""} ${content.videoUrl.substringAfterLast('/')}"
-                is DetailContent.ThreadEndTime -> null
-            }
-            if (textToSearch?.contains(query, ignoreCase = true) == true) {
-                searchResultPositions.add(index)
-            }
-        }
-        if (searchResultPositions.isNotEmpty()) {
-            currentSearchHitIndex = 0
-            navigateToCurrentHit()
-            binding.searchNavigationControls.visibility = View.VISIBLE
-        } else {
-            Toast.makeText(this, getString(R.string.no_results_found), Toast.LENGTH_SHORT).show()
-            binding.searchNavigationControls.visibility = View.GONE
-        }
-        updateSearchResultsCount()
-    }
-
-    private fun clearSearchAndUI() {
-        currentSearchQuery = null
-        detailAdapter.setSearchQuery(null)
-        searchResultPositions.clear()
-        currentSearchHitIndex = -1
-        binding.searchNavigationControls.visibility = View.GONE
-        updateSearchResultsCount()
-        if (searchView?.isIconified == false) {
-            searchView?.setQuery("", false)
-            searchView?.isIconified = true
-        }
-        if (viewModel.isLoading.value == false) {
-            binding.detailRecyclerView.isVisible = true
-        }
-    }
-
-    private fun navigateToCurrentHit() {
-        if (searchResultPositions.isNotEmpty() && currentSearchHitIndex in searchResultPositions.indices) {
-            val position = searchResultPositions[currentSearchHitIndex]
-            if (position >= 0 && position < detailAdapter.itemCount) {
-                binding.detailRecyclerView.post {
-                    layoutManager.scrollToPositionWithOffset(position, 20)
-                }
-            }
-        }
-        updateSearchResultsCount()
-    }
-
-    private fun setupSearchNavigation() {
-        binding.searchUpButton.setOnClickListener {
-            if (searchResultPositions.isNotEmpty()) {
-                currentSearchHitIndex--
-                if (currentSearchHitIndex < 0) { currentSearchHitIndex = searchResultPositions.size - 1 }
-                navigateToCurrentHit()
-            }
-        }
-        binding.searchDownButton.setOnClickListener {
-            if (searchResultPositions.isNotEmpty()) {
-                currentSearchHitIndex++
-                if (currentSearchHitIndex >= searchResultPositions.size) { currentSearchHitIndex = 0 }
-                navigateToCurrentHit()
-            }
-        }
-    }
-
-    private fun updateSearchResultsCount() {
-        if (searchResultPositions.isNotEmpty() && currentSearchHitIndex != -1) {
-            binding.searchResultsCountText.text =
-                getString(R.string.search_results_format, currentSearchHitIndex + 1, searchResultPositions.size)
-        } else if (currentSearchQuery != null && searchResultPositions.isEmpty()) {
-            binding.searchResultsCountText.text = getString(R.string.no_results_found)
-        } else {
-            binding.searchResultsCountText.text = ""
-        }
-    }
-
-    private fun getFileName(uri: Uri): String? {
-        var fileName: String? = null
+    private fun getFileName(fileUri: Uri): String? { // Renamed parameter
+        var fileNameResult: String? = null // Renamed
         try {
-            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            contentResolver.query(fileUri, null, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     val displayNameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                     if (displayNameIndex != -1) {
-                        fileName = cursor.getString(displayNameIndex)
+                        fileNameResult = cursor.getString(displayNameIndex)
                     } else {
                         Log.w("DetailActivity", "Column OpenableColumns.DISPLAY_NAME not found in getFileName.")
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e("DetailActivity", "Error getting file name from ContentResolver for URI $uri", e)
+            Log.e("DetailActivity", "Error getting file name from ContentResolver for URI $fileUri", e)
         }
-        if (fileName == null) {
-            // Fallback if ContentResolver query fails or doesn't provide a name
-            fileName = uri.path?.substringAfterLast('/')
-            if (fileName.isNullOrEmpty()) Log.w("DetailActivity", "Could not derive filename from URI path: $uri")
+        if (fileNameResult == null) {
+            fileNameResult = fileUri.path?.substringAfterLast('/')
+            if (fileNameResult.isNullOrEmpty()) Log.w("DetailActivity", "Could not derive filename from URI path: $fileUri")
         }
-        return fileName
+        return fileNameResult
     }
 
-    private fun getFileSize(uri: Uri): Long? {
+    private fun getFileSize(fileUri: Uri): Long? { // Renamed parameter
         try {
-            contentResolver.openFileDescriptor(uri, "r")?.use { pfd -> return pfd.statSize }
+            contentResolver.openFileDescriptor(fileUri, "r")?.use { pfd -> return pfd.statSize }
         } catch (e: Exception) {
-            Log.e("DetailActivity", "Error getting file size for URI: $uri", e)
+            Log.e("DetailActivity", "Error getting file size for URI: $fileUri", e)
         }
         return null
+    }
+
+    // Implementation of SearchManagerCallback
+    override fun getDetailContent(): List<DetailContent>? {
+        return viewModel.detailContent.value
+    }
+
+    override fun getDetailAdapter(): DetailAdapter {
+        return detailAdapter // Ensure detailAdapter is initialized before this is called
+    }
+
+    override fun getLayoutManager(): LinearLayoutManager {
+        return layoutManager // Ensure layoutManager is initialized
+    }
+
+    override fun showToast(message: String, duration: Int) {
+        Toast.makeText(this, message, duration).show()
+    }
+
+    override fun getStringResource(resId: Int): String {
+        return getString(resId)
+    }
+
+    override fun getStringResource(resId: Int, vararg formatArgs: Any): String {
+        return getString(resId, *formatArgs)
+    }
+
+    override fun onSearchCleared() {
+        if (isBindingInitialized() && viewModel.isLoading.value == false ) {
+             binding.detailRecyclerView.isVisible = true
+        }
+    }
+
+    override fun isBindingInitialized(): Boolean {
+        // This checks if 'binding' has been assigned.
+        // It's a good practice for callbacks that might be invoked before full initialization.
+        return ::binding.isInitialized 
     }
 }
