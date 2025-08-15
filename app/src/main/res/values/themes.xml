@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
         古いテーマ定義は削除しました。
@@ -9,7 +8,7 @@
             ブランドの基本色。
             この中でテーマの各属性をカスタマイズできます。
         -->
-        <item name="colorPrimary">@color/purple_500</item>
+        <item name="colorPrimary">@color/my_expressive_primary</item>
         <item name="colorPrimaryVariant">@color/purple_700</item>
         <item name="colorOnPrimary">@color/white</item>
         <!-- ブランドの第二色。 -->
@@ -20,7 +19,13 @@
         <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
     </style>
 
+    <style name="Theme.MyApplication.AppBarOverlay" parent="ThemeOverlay.AppCompat.Dark.ActionBar" />
+
+    <style name="Theme.MyApplication.PopupOverlay" parent="ThemeOverlay.AppCompat.Light" />
+
     <style name="Toolbar.TitleText" parent="TextAppearance.Widget.AppCompat.Toolbar.Title">
-        <item name="android:textSize">24sp</item> </style>
+        <item name="android:textColor">@color/white</item>
+        <item name="android:textSize">24sp</item>
+    </style>
 
 </resources>

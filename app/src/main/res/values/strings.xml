@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">My Application</string>
+    <string name="app_name">ふたブラ仮</string>
     <string name="reload">再読み込み</string>
     <string name="reloading">再読み込み</string>
     <!-- ... other strings ... -->

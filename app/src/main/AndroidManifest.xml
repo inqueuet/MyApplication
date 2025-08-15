@@ -14,6 +14,7 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
     <application
+        android:name=".MyApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -34,6 +35,11 @@
             </intent-filter>
         </activity>
         <activity android:name=".DetailActivity" />
+        <activity
+            android:name=".ReplyActivity"
+            android:label="レスを投稿"
+            android:parentActivityName=".DetailActivity"
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".BookmarkActivity"
             android:label="ブックマーク管理"

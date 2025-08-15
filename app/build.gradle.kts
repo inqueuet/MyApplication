@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.myapplication"
+    namespace = "com.example.hutaburakari"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.myapplication"
+        applicationId = "com.example.hutaburakari"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
