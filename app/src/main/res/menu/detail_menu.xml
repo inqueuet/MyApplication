@@ -12,11 +12,6 @@
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="ifRoom|collapseActionView" />
     <item
-        android:id="@+id/action_write"
-        android:title="@string/write_mode"
-        android:icon="@drawable/action_image_edit"
-        app:showAsAction="ifRoom" />
-    <item
         android:id="@+id/action_scroll_back"
         android:title="@string/scroll_back"
         android:icon="@drawable/ic_arrow_back"

@@ -9,26 +9,27 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
+// import android.webkit.WebResourceError // No longer needed
+// import android.webkit.WebResourceRequest // No longer needed
+// import android.webkit.WebView // No longer needed
+// import android.webkit.WebViewClient // No longer needed
+// import android.widget.Button // No longer needed
+// import android.widget.EditText // No longer needed
+import android.widget.TextView // Potentially still needed by DetailSearchManager or other parts, keep for now
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
-import androidx.activity.result.ActivityResultLauncher
-import androidx.activity.result.contract.ActivityResultContracts
+// import androidx.activity.result.ActivityResultLauncher // No longer needed
+// import androidx.activity.result.contract.ActivityResultContracts // No longer needed
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.myapplication.databinding.ActivityDetailBinding
-import okhttp3.*
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-// MediaType.Companion.toMediaTypeOrNull and RequestBody.Companion.toRequestBody are used by CommentSender
+import okhttp3.* // Keep for okHttpCookieJar and okHttpClient if they are used by other features
+// import okhttp3.HttpUrl.Companion.toHttpUrlOrNull // No longer needed directly here
+// import okhttp3.MediaType.Companion.toMediaTypeOrNull // Was for CommentSender
+// import okhttp3.RequestBody.Companion.toRequestBody // Was for CommentSender
 // import java.io.IOException // No longer directly used here
 // import java.nio.charset.Charset // No longer directly used here
 import java.util.ArrayDeque
@@ -48,25 +49,18 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
 
     private lateinit var detailSearchManager: DetailSearchManager
 
-    // File Picker and related UI
-    private lateinit var filePickerLauncher: ActivityResultLauncher<Array<String>>
-    private var selectedFileUri: Uri? = null
-    private var textViewSelectedFileName: TextView? = null
-    private val maxFileSizeBytes = 8 * 1024 * 1024 // 8MB
+    // File Picker and related UI (Removed as part of comment functionality removal)
+    // private lateinit var filePickerLauncher: ActivityResultLauncher<Array<String>> // Removed
+    // private var selectedFileUri: Uri? = null // Removed
+    // private var textViewSelectedFileName: TextView? = null // Removed
+    // private val maxFileSizeBytes = 8 * 1024 * 1024 // 8MB - Keep if other file uploads exist, remove if only for comments
+    // For now, assume it might be used elsewhere, if not, it can be removed later.
+    private val maxFileSizeBytes = 8 * 1024 * 1024 // 8MB, potentially for other features?
 
-    // Background WebView and Submission Process
-    private var backgroundWebView: WebView? = null
-    private var targetPageUrlForFields: String? = null
-    private var currentBoardId: String? = null
-    private var isSubmissionProcessActive = false
-    private var commentFormDataMap: MutableMap<String, Any?> = mutableMapOf()
+    // Background WebView and Submission Process (Removed)
+    // private var backgroundWebView: WebView? = null // Removed
 
-    // Hidden Form Fields Retrieval
-    private var hiddenFormValues = mutableMapOf<String, String>()
-    private var currentHiddenFieldStep = 0
-    private val hiddenFieldSelectors = listOf(
-        "baseform", "pthb", "pthc", "pthd", "ptua", "scsz", "hash", "chrenc"
-    )
+    // private var commentFormDataMap: MutableMap<String, Any?> = mutableMapOf() // Removed
 
     private val okHttpCookieJar: CookieJar = object : CookieJar {
         private val cookieStore = mutableMapOf<String, MutableList<Cookie>>()
@@ -103,12 +97,14 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private lateinit var commentSender: CommentSender
-
     companion object {
         const val EXTRA_URL = "extra_url"
-        // KEY_NAME, KEY_EMAIL, KEY_SUBJECT, KEY_COMMENT, KEY_SELECTED_FILE_URI
-        // are now in CommentSender.companion object
+        // Constants related to comments removed
+        // const val KEY_NAME = "name"
+        // const val KEY_EMAIL = "email"
+        // const val KEY_SUBJECT = "subject"
+        // const val KEY_COMMENT = "comment"
+        // const val KEY_SELECTED_FILE_URI = "selectedFileUri"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,17 +115,6 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
 
         scrollPositionStore = ScrollPositionStore(this)
         detailSearchManager = DetailSearchManager(binding, this)
-
-        commentSender = CommentSender(
-            okHttpClient = this.okHttpClient,
-            okHttpCookieJar = this.okHttpCookieJar,
-            contentResolver = this.contentResolver, // Changed from applicationContext.contentResolver
-            getFileNameFn = this::getFileNameFromUri, 
-            runOnUiThreadFn = { action -> this.runOnUiThread(action) }, // Wrapped in a lambda
-            resetSubmissionStateFn = this::resetCommentSubmissionState, 
-            showToastFn = this::showToastOnUiThread, 
-            onSubmissionSuccessFn = this::handleCommentSubmissionSuccess
-        )
 
         val url = intent.getStringExtra(EXTRA_URL)
         val title = intent.getStringExtra("EXTRA_TITLE")
@@ -149,27 +134,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
         viewModel.fetchDetails(currentUrl!!)
         detailSearchManager.setupSearchNavigation()
 
-        filePickerLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-            if (uri != null) {
-                val fileSize = getFileSize(uri)
-                val fileNameToDisplay = getFileNameFromUri(uri) 
-                if (fileSize != null && fileSize > maxFileSizeBytes) {
-                    val maxSizeMB = maxFileSizeBytes / (1024.0 * 1024.0)
-                    Toast.makeText(this, getString(R.string.error_file_too_large_format, maxSizeMB), Toast.LENGTH_LONG).show()
-                    this.selectedFileUri = null
-                    commentFormDataMap.remove(CommentSender.KEY_SELECTED_FILE_URI)
-                    textViewSelectedFileName?.text = getString(R.string.text_no_file_selected)
-                } else {
-                    this.selectedFileUri = uri
-                    commentFormDataMap[CommentSender.KEY_SELECTED_FILE_URI] = uri
-                    textViewSelectedFileName?.text = fileNameToDisplay ?: uri.toString()
-                }
-            } else {
-                this.selectedFileUri = null
-                commentFormDataMap.remove(CommentSender.KEY_SELECTED_FILE_URI)
-                textViewSelectedFileName?.text = getString(R.string.text_no_file_selected)
-            }
-        }
+        // filePickerLauncher initialization removed
 
         val onBackPressedCallback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -187,7 +152,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
                     }
                 } else {
                     isEnabled = false
-                    onBackPressedDispatcher.onBackPressed() 
+                    onBackPressedDispatcher.onBackPressed()
                 }
             }
         }
@@ -200,203 +165,16 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
         }
     }
 
-    private fun initializeBackgroundWebView() {
-        if (backgroundWebView == null) {
-            Log.d("DetailActivity", "Initializing backgroundWebView.")
-            backgroundWebView = WebView(this).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        Log.d("DetailActivity", "WebView onPageFinished: $url, isSubmissionProcessActive: $isSubmissionProcessActive, targetPageUrlForFields: $targetPageUrlForFields")
-                        if (isSubmissionProcessActive && url == targetPageUrlForFields) {
-                            val webViewCookieManager = android.webkit.CookieManager.getInstance()
-                            val cookiesHeaderFromWebView = webViewCookieManager.getCookie(url)
-                            Log.d("DetailActivity", "Cookies string from backgroundWebView after page finished ($url): '$cookiesHeaderFromWebView'")
+    // initializeBackgroundWebView method removed
 
-                            if (!cookiesHeaderFromWebView.isNullOrEmpty()) {
-                                val httpUrl = url!!.toHttpUrlOrNull()
-                                if (httpUrl != null) {
-                                    cookiesHeaderFromWebView.split(";").forEach { cookieString ->
-                                        Cookie.parse(httpUrl, cookieString.trim())?.let {
-                                            okHttpCookieJar.saveFromResponse(httpUrl, listOf(it))
-                                        }
-                                    }
-                                }
-                            }
-                            currentHiddenFieldStep = 0
-                            hiddenFormValues.clear()
-                            executeHiddenFieldJsStep(view)
-                        } else if (isSubmissionProcessActive) { // Condition `url != targetPageUrlForFields` is always true here
-                            Log.w("DetailActivity", "WebView navigated to unexpected URL ('$url') during submission, expecting '$targetPageUrlForFields'")
-                            resetCommentSubmissionState("ページ準備中に予期せぬURLに遷移: $url")
-                        }
-                    }
+    // resetCommentSubmissionState method removed
 
-                    override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                        super.onReceivedError(view, request, error)
-                        Log.e("DetailActivity", "WebView onReceivedError: ${error?.description} for ${request?.url}, isForMainFrame: ${request?.isForMainFrame}")
-                        if (request?.isForMainFrame == true && request.url.toString() == targetPageUrlForFields) {
-                            resetCommentSubmissionState("ページの読み込みに失敗: ${error?.description ?: "\"不明なエラー\""}")
-                        }
-                    }
-                }
-            }
-        } else {
-            Log.d("DetailActivity", "backgroundWebView already initialized.")
-        }
-    }
-
-    private fun executeHiddenFieldJsStep(webView: WebView?) {
-        if (webView == null) {
-            Log.w("DetailActivity", "executeHiddenFieldJsStep: WebView is null.")
-            resetCommentSubmissionState("WebViewが利用できません。")
-            return
-        }
-        if (currentHiddenFieldStep < hiddenFieldSelectors.size) {
-            val fieldName = hiddenFieldSelectors[currentHiddenFieldStep]
-            val jsToExecute = "(function() { var el = document.querySelector('input[name=\'${fieldName}\']'); return el ? el.value : ''; })();"
-            Log.d("DetailActivity", "Executing JS for hidden field: $fieldName, JS: $jsToExecute")
-            webView.evaluateJavascript(jsToExecute) { result ->
-                val valueResult = result?.trim()?.removeSurrounding("'''") ?: ""
-                Log.d("DetailActivity", "Hidden field: '$fieldName' = '$valueResult'")
-                hiddenFormValues[fieldName] = valueResult
-                currentHiddenFieldStep++
-                executeHiddenFieldJsStep(webView)
-            }
-        } else {
-            Log.d("DetailActivity", "All hidden fields collected: $hiddenFormValues. Proceeding to send with CommentSender.")
-            val submissionUrl = "https://may.2chan.net/b/futaba.php?guid=on" 
-
-            commentSender.sendComment(
-                commentFormDataMap = commentFormDataMap,
-                hiddenFormValues = hiddenFormValues.toMap(), 
-                currentBoardId = currentBoardId,
-                maxFileSizeBytes = maxFileSizeBytes.toLong(),
-                targetPageUrlForFields = targetPageUrlForFields,
-                submissionUrl = submissionUrl
-            )
-        }
-    }
-
-    private fun resetCommentSubmissionState(errorMessage: String? = null) { 
-        Log.d("DetailActivity", "Resetting submission state. Message: $errorMessage")
-        isSubmissionProcessActive = false
-        if (errorMessage != null) {
-            showToastOnUiThread(errorMessage, Toast.LENGTH_LONG)
-        }
-    }
-    
-    private fun handleCommentSubmissionSuccess(responseBody: String) {
-        runOnUiThread {
-            Log.i("DetailActivity", "Comment submission successful via CommentSender!")
-            showToastOnUiThread("コメントを送信しました。", Toast.LENGTH_LONG)
-            commentFormDataMap.clear()
-            selectedFileUri = null
-            textViewSelectedFileName?.text = getString(R.string.text_no_file_selected) 
-            resetCommentSubmissionState() 
-            currentUrl?.let { urlToRefresh ->
-                showToastOnUiThread("スレッドを再読み込みします...", Toast.LENGTH_SHORT)
-                viewModel.fetchDetails(urlToRefresh, forceRefresh = true)
-            }
-            Log.d("DetailActivity", "Response on success (first 200 chars): ${responseBody.take(200)}")
-        }
-    }
-
-    private fun showAddCommentDialog() {
-        if (currentUrl == null || !currentUrl!!.startsWith("https://may.2chan.net/b/res/")) {
-            Toast.makeText(this, "このURLでは書き込みモードはサポートされていません。", Toast.LENGTH_LONG).show()
-            return
-        }
-        val idWithExtension = currentUrl!!.substringAfterLast("/")
-        val id = idWithExtension.substringBefore(".htm")
-        if (id.isEmpty()) {
-            Toast.makeText(this, "URLからIDを取得できませんでした。", Toast.LENGTH_LONG).show()
-            return
-        }
-        currentBoardId = id
-
-        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_add_comment, null)
-        val editTextName = dialogView.findViewById<EditText>(R.id.edit_text_name)
-        val editTextEmail = dialogView.findViewById<EditText>(R.id.edit_text_email)
-        val editTextSubject = dialogView.findViewById<EditText>(R.id.edit_text_subject)
-        val editTextComment = dialogView.findViewById<EditText>(R.id.edit_text_comment)
-        val buttonSelectFile = dialogView.findViewById<Button>(R.id.button_select_file)
-        textViewSelectedFileName = dialogView.findViewById(R.id.text_selected_file_name) // Type argument inferred
-
-        editTextName.setText(commentFormDataMap[CommentSender.KEY_NAME] as? String ?: "")
-        editTextEmail.setText(commentFormDataMap[CommentSender.KEY_EMAIL] as? String ?: "")
-        editTextSubject.setText(commentFormDataMap[CommentSender.KEY_SUBJECT] as? String ?: "")
-        editTextComment.setText(commentFormDataMap[CommentSender.KEY_COMMENT] as? String ?: "")
-
-        val previouslySelectedUri = commentFormDataMap[CommentSender.KEY_SELECTED_FILE_URI] as? Uri
-        if (previouslySelectedUri != null) {
-            this.selectedFileUri = previouslySelectedUri
-            textViewSelectedFileName?.text = getFileNameFromUri(previouslySelectedUri) ?: previouslySelectedUri.toString()
-        } else {
-            this.selectedFileUri = null
-            textViewSelectedFileName?.text = getString(R.string.text_no_file_selected)
-        }
-
-        buttonSelectFile.setOnClickListener {
-            filePickerLauncher.launch(arrayOf("image/gif", "image/jpeg", "image/png", "video/webm", "video/mp4", "*/*"))
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.add_comment_dialog_title)
-            .setView(dialogView)
-            .setPositiveButton(R.string.button_send) { dialog, _ ->
-                commentFormDataMap[CommentSender.KEY_NAME] = editTextName.text.toString()
-                commentFormDataMap[CommentSender.KEY_EMAIL] = editTextEmail.text.toString()
-                commentFormDataMap[CommentSender.KEY_SUBJECT] = editTextSubject.text.toString()
-                commentFormDataMap[CommentSender.KEY_COMMENT] = editTextComment.text.toString()
-                targetPageUrlForFields = currentUrl
-                Log.d("DetailActivity", "AddCommentDialog: Send clicked. Target page for fields: $targetPageUrlForFields")
-                performCommentSubmission()
-                dialog.dismiss()
-            }
-            .setNegativeButton(R.string.button_cancel) { dialog, _ ->
-                textViewSelectedFileName = null 
-                dialog.cancel()
-            }
-            .setOnDismissListener {
-                textViewSelectedFileName = null
-            }
-            .show()
-    }
-
-    private fun performCommentSubmission() {
-        if (isSubmissionProcessActive) {
-            Log.w("DetailActivity", "performCommentSubmission: Already active.")
-            Toast.makeText(this, "既に処理を実行中です。", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (targetPageUrlForFields == null || currentBoardId == null) {
-            Log.e("DetailActivity", "performCommentSubmission: Submission info missing. targetPageUrlForFields=$targetPageUrlForFields, currentBoardId=$currentBoardId")
-            resetCommentSubmissionState("送信情報が不足しています(URL/ID)。")
-            return
-        }
-        Log.d("DetailActivity", "Performing comment submission to board ID: $currentBoardId, from URL: $currentUrl, target page for fields: $targetPageUrlForFields")
-
-        initializeBackgroundWebView()
-        isSubmissionProcessActive = true
-        currentHiddenFieldStep = 0
-        hiddenFormValues.clear()
-
-        backgroundWebView?.let {
-            Log.d("DetailActivity", "Loading URL in backgroundWebView for hidden fields: $targetPageUrlForFields")
-            it.loadUrl(targetPageUrlForFields!!)
-            showToastOnUiThread("投稿準備中です...", Toast.LENGTH_SHORT) 
-        } ?: run {
-            Log.e("DetailActivity", "performCommentSubmission: backgroundWebView is null before loading URL.")
-            resetCommentSubmissionState("WebViewの初期化に失敗しました。")
-        }
-    }
+    // handleCommentSubmissionSuccess method removed
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.detail_menu, menu)
         detailSearchManager.setupSearch(menu)
+        // menu.findItem(R.id.action_write)?.isVisible = false // This line can be reactivated if you want to explicitly hide the option
         return true
     }
 
@@ -405,14 +183,13 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
             R.id.action_reload -> {
                 currentUrl?.let { urlToRefresh ->
                     saveCurrentScrollStateIfApplicable()
-                    detailSearchManager.clearSearch() 
+                    detailSearchManager.clearSearch()
                     scrollHistory.clear()
                     viewModel.fetchDetails(urlToRefresh, forceRefresh = true)
                     showToastOnUiThread("再読み込みしています...", Toast.LENGTH_SHORT)
                 }
                 true
             }
-            R.id.action_write -> { showAddCommentDialog(); true }
             R.id.action_scroll_back -> {
                 if (scrollHistory.isNotEmpty()) {
                     val (position, offset) = scrollHistory.removeLast()
@@ -438,10 +215,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
     }
 
     override fun onDestroy() {
-        Log.d("DetailActivity", "onDestroy called, destroying backgroundWebView.")
-        backgroundWebView?.stopLoading()
-        backgroundWebView?.destroy()
-        backgroundWebView = null
+        // backgroundWebView related cleanup removed
         super.onDestroy()
     }
 
@@ -452,9 +226,9 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
     }
 
     private fun setupRecyclerView() {
-        detailAdapter = DetailAdapter() 
+        detailAdapter = DetailAdapter()
         layoutManager = LinearLayoutManager(this@DetailActivity)
-        detailAdapter.onQuoteClickListener = customLabel@{
+        detailAdapter.onQuoteClickListener = customLabel@ {
             currentQuotedText ->
             val contentList = viewModel.detailContent.value ?: return@customLabel
             val currentFirstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition()
@@ -501,7 +275,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
     private fun observeViewModel() {
         viewModel.isLoading.observe(this) { isLoading ->
             binding.progressBar.isVisible = isLoading
-            binding.detailRecyclerView.isVisible = !isLoading && !detailSearchManager.isSearchActive() 
+            binding.detailRecyclerView.isVisible = !isLoading && !detailSearchManager.isSearchActive()
         }
         viewModel.detailContent.observe(this) { contentList ->
             val hadPreviousContent = detailAdapter.itemCount > 0
@@ -512,7 +286,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
                             detailSearchManager.getCurrentSearchQuery()?.let { query ->
                                 detailSearchManager.performSearch(query)
                             }
-                        } else { 
+                        } else {
                             if (hadPreviousContent || scrollPositionStore.getScrollState(url).first != 0 || scrollPositionStore.getScrollState(url).second != 0) {
                                 val (position, offset) = scrollPositionStore.getScrollState(url)
                                 if (position >= 0 && position < contentList.size) {
@@ -524,7 +298,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
                         }
                     }
                 } else {
-                    detailSearchManager.clearSearch() 
+                    detailSearchManager.clearSearch()
                 }
             }
         }
@@ -544,7 +318,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
         }
     }
 
-    private fun getFileNameFromUri(uri: Uri): String? { 
+    private fun getFileNameFromUri(uri: Uri): String? {
         var fileNameResult: String? = null
         try {
             contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -567,7 +341,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
         return fileNameResult
     }
 
-    private fun getFileSize(uri: Uri): Long? { 
+    private fun getFileSize(uri: Uri): Long? {
         try {
             contentResolver.openFileDescriptor(uri, "r")?.use { pfd -> return pfd.statSize }
         } catch (e: Exception) {
@@ -614,6 +388,6 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
     }
 
     override fun isBindingInitialized(): Boolean {
-        return ::binding.isInitialized 
+        return ::binding.isInitialized
     }
 }
