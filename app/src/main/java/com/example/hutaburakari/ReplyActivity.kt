@@ -28,6 +28,7 @@ class ReplyActivity : AppCompatActivity() {
     private var threadTitle: String? = null
     private var boardUrl: String? = null
     private lateinit var webView: WebView
+    private var finalTargetUrl: String = "" // Added to store the correctly formatted URL
 
     companion object {
         const val EXTRA_THREAD_ID = "extra_thread_id"
@@ -115,16 +116,15 @@ class ReplyActivity : AppCompatActivity() {
                 binding.progressBar.isVisible = false
                 Log.d(TAG, "Page finished loading: $url")
 
-                val expectedInitialUrl = "${this@ReplyActivity.boardUrl}res/${this@ReplyActivity.threadId}.htm"
-                Log.d(TAG, "Checking if current URL '$url' matches expected '$expectedInitialUrl'")
+                // Use the correctly formatted finalTargetUrl for comparison
+                Log.d(TAG, "Checking if current URL '$url' matches expected '$finalTargetUrl'")
 
-                if (url == expectedInitialUrl) {
+                if (url == finalTargetUrl) {
                     val javascript = """
                         javascript:(function() {
                             var formElement = document.getElementById('fm');
                             if (!formElement) { console.log('Form "fm" not found'); return; }
 
-                            if (formElement.parentNode) { formElement.parentNode.removeChild(formElement); }
                             document.body.innerHTML = '';
                             document.body.appendChild(formElement);
                             formElement.style.padding = '16px';
@@ -164,22 +164,16 @@ class ReplyActivity : AppCompatActivity() {
                             });
                             console.log('Form isolated and submission listener attached.');
                         })()
-                    """.trimIndent().replace("\n", " ")
+                    """.trimIndent().replace("<caret>", " ")
                     view?.evaluateJavascript(javascript, null)
                     Log.d(TAG, "JavaScript for form isolation and submission detection executed.")
                 }
 
-                // Previous success/error detection based on URL and title is removed
-                // as submission is now handled via JavaScriptInterface.
-                // However, an error page might still navigate, so you might want to keep
-                // a simplified error detection if errors cause navigation.
-                // For now, focusing on the AJAX success case.
                 val pageContentForCheck = view?.title ?: ""
-                if (url?.contains("futaba.htm", ignoreCase = true) == true && // Check if it's an error page
-                    (pageContentForCheck.contains("削除されました") || pageContentForCheck.contains("error", ignoreCase = true) || pageContentForCheck.contains("ＥＲＲＯＲ")) // Common error indicators
+                if (url?.contains("futaba.htm", ignoreCase = true) == true && 
+                    (pageContentForCheck.contains("削除されました") || pageContentForCheck.contains("error", ignoreCase = true) || pageContentForCheck.contains("ＥＲＲＯＲ"))
                 ) {
                     Toast.makeText(this@ReplyActivity, "投稿エラーが発生した可能性があります。", Toast.LENGTH_LONG).show()
-                    // Consider not finishing, or providing a way to retry/go back.
                 }
 
             }
@@ -193,7 +187,6 @@ class ReplyActivity : AppCompatActivity() {
         }
 
         webView.webChromeClient = object : WebChromeClient() {
-            // ... (onShowFileChooser, onProgressChanged as before)
             override fun onShowFileChooser(
                 webView: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
@@ -213,9 +206,12 @@ class ReplyActivity : AppCompatActivity() {
             }
         }
 
-        val targetUrl = "${boardUrl}res/${threadId}.htm"
-        Log.d(TAG, "onCreate - Attempting to load URL in WebView: $targetUrl")
-        webView.loadUrl(targetUrl)
+        // Correctly format the target URL
+        // boardUrl and threadId are confirmed not null at this point
+        val baseBoardPath = boardUrl!!.substringBeforeLast("futaba.php", missingDelimiterValue = boardUrl!!)
+        finalTargetUrl = "${baseBoardPath}res/${threadId!!}.htm"
+        Log.d(TAG, "onCreate - Attempting to load URL in WebView: $finalTargetUrl")
+        webView.loadUrl(finalTargetUrl)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
