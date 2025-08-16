@@ -1,6 +1,7 @@
 package com.example.hutaburakari
 
 import android.annotation.SuppressLint
+import android.app.Activity // Activity.RESULT_OK のために必要
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
@@ -44,6 +45,7 @@ class ReplyActivity : AppCompatActivity() {
         fun submissionSuccessful() {
             runOnUiThread {
                 Toast.makeText(this@ReplyActivity, "投稿が成功したため画面を閉じます。", Toast.LENGTH_LONG).show()
+                setResult(Activity.RESULT_OK) // 成功を通知
                 finish()
             }
         }

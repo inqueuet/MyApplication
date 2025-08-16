@@ -33,7 +33,7 @@ object BookmarkManager {
         // If no bookmarks exist, add the original default URL as the first bookmark.
         if (bookmarks == null || bookmarks.isEmpty()) {
             bookmarks = mutableListOf(
-                Bookmark("ねこ", "https://may.2chan.net/27/futaba.php?mode=cat&sort=3")
+                Bookmark("may", "https://may.2chan.net/b/futaba.php?mode=cat&sort=3")
             )
             saveBookmarks(context, bookmarks) // Save default if none exist
         }
@@ -72,7 +72,7 @@ object BookmarkManager {
         val prefs = getPreferences(context)
         // Get the list of bookmarks; this ensures defaults are created if the list is empty.
         val existingBookmarks = getBookmarks(context)
-        val defaultUrl = existingBookmarks.firstOrNull()?.url ?: "https://may.2chan.net/27/futaba.php?mode=cat&sort=3"
+        val defaultUrl = existingBookmarks.firstOrNull()?.url ?: "https://may.2chan.net/b/futaba.php?mode=cat&sort=3"
         return prefs.getString(KEY_SELECTED_BOOKMARK_URL, defaultUrl)!!
     }
 }

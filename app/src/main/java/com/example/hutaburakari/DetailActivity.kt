@@ -1,6 +1,8 @@
 package com.example.hutaburakari
 
-import android.content.Intent // Intent をインポート
+// ... (他のimport文)
+import android.app.Activity // Activity.RESULT_OK のために必要
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.Menu
@@ -31,6 +33,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
 
     companion object {
         const val EXTRA_URL = "extra_url"
+        private const val REQUEST_CODE_REPLY = 1 // リクエストコードを追加
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -114,7 +117,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
                         putExtra(ReplyActivity.EXTRA_THREAD_TITLE, binding.toolbarTitle.text.toString())
                         putExtra(ReplyActivity.EXTRA_BOARD_URL, boardPostUrl) // 修正：完全な投稿先URLを渡す
                     }
-                    startActivity(intent)
+                    startActivityForResult(intent, REQUEST_CODE_REPLY) // 変更
                 }
                 true
             }
@@ -144,6 +147,24 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
                 true
             }
             else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        Log.d("DetailActivity", "onActivityResult: requestCode=$requestCode, resultCode=$resultCode") // ログ追加
+        if (requestCode == REQUEST_CODE_REPLY && resultCode == Activity.RESULT_OK) {
+            Log.d("DetailActivity", "onActivityResult: Reply successful, attempting to refresh.") // ログ追加
+            Toast.makeText(this, "Reply successful, refreshing...", Toast.LENGTH_SHORT).show() // 確認用トースト
+            currentUrl?.let { urlToRefresh ->
+                saveCurrentScrollStateIfApplicable()
+                detailSearchManager.clearSearch()
+                scrollHistory.clear()
+                viewModel.fetchDetails(urlToRefresh, forceRefresh = true)
+                showToastOnUiThread("投稿を反映して再読み込みしました。", Toast.LENGTH_SHORT) // こちらは既存
+            }
+        } else {
+            Log.d("DetailActivity", "onActivityResult: Reply not successful or wrong request code.") // ログ追加
         }
     }
 
