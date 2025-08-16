@@ -236,6 +236,26 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
             Log.d("DetailActivity", "ThreadEndTime clicked, reloading...")
             reloadDetails() // ★ 再読み込み処理を呼び出し
         }
+        // ★ ResNumクリックリスナーを設定
+        detailAdapter.onResNumClickListener = { resNum, resBody ->
+            currentUrl?.let { url ->
+                val threadId = url.substringAfterLast("/").substringBefore(".htm")
+                val boardBasePath = url.substringBeforeLast("/").substringBeforeLast("/") + "/"
+                val boardPostUrl = boardBasePath + "futaba.php"
+
+                Log.d("DetailActivity", "ResNum Clicked: No.$resNum, Body: \n$resBody")
+                Log.d("DetailActivity", "Thread ID: $threadId, Board URL: $boardPostUrl, Thread Title: ${binding.toolbarTitle.text}")
+
+                val intent = Intent(this, ReplyActivity::class.java).apply {
+                    putExtra(ReplyActivity.EXTRA_THREAD_ID, threadId)
+                    putExtra(ReplyActivity.EXTRA_THREAD_TITLE, binding.toolbarTitle.text.toString())
+                    putExtra(ReplyActivity.EXTRA_BOARD_URL, boardPostUrl)
+                    putExtra(ReplyActivity.EXTRA_QUOTE_TEXT, resBody) // ★ 引用テキストを渡す
+                }
+                startActivityForResult(intent, REQUEST_CODE_REPLY)
+            }
+        }
+
         binding.detailRecyclerView.apply {
             layoutManager = this@DetailActivity.layoutManager
             adapter = detailAdapter

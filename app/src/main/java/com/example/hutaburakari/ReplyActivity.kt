@@ -36,6 +36,7 @@ class ReplyActivity : AppCompatActivity() {
         const val EXTRA_THREAD_ID = "extra_thread_id"
         const val EXTRA_THREAD_TITLE = "extra_thread_title"
         const val EXTRA_BOARD_URL = "extra_board_url"
+        const val EXTRA_QUOTE_TEXT = "extra_quote_text" // ★ 追加
         private const val TAG = "ReplyActivity"
         private const val PC_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
     }
@@ -68,8 +69,9 @@ class ReplyActivity : AppCompatActivity() {
         threadId = intent.getStringExtra(EXTRA_THREAD_ID)
         threadTitle = intent.getStringExtra(EXTRA_THREAD_TITLE)
         boardUrl = intent.getStringExtra(EXTRA_BOARD_URL)
+        val quoteText = intent.getStringExtra(EXTRA_QUOTE_TEXT) // ★ 追加
 
-        Log.d(TAG, "onCreate Received threadId: $threadId, threadTitle: $threadTitle, boardUrl: $boardUrl")
+        Log.d(TAG, "onCreate Received threadId: $threadId, threadTitle: $threadTitle, boardUrl: $boardUrl, quoteText: $quoteText") // ★ ログ更新
 
         if (threadId == null || boardUrl == null) {
             Log.e(TAG, "onCreate Error: Missing crucial data. threadId: $threadId, boardUrl: $boardUrl")
@@ -124,7 +126,7 @@ class ReplyActivity : AppCompatActivity() {
                 Log.d(TAG, "Checking if current URL '$url' matches expected '$finalTargetUrl'")
 
                 if (url == finalTargetUrl) {
-                    val javascript = """
+                    var scriptToExecute = """
                         javascript:(function() {
                             var formElement = document.getElementById('fm');
                             if (!formElement) { console.log('Form "fm" not found'); return; }
@@ -146,7 +148,25 @@ class ReplyActivity : AppCompatActivity() {
                             var submitButton = formElement.querySelector('input[type="submit"]');
 
                             if (!commentTextArea || !submitButton) { console.log('Required elements not found in form'); return; }
+                    """
 
+                    if (!quoteText.isNullOrEmpty()) {
+                        // JavaScript内で安全に文字列を扱うためにエスケープする
+                        val escapedQuoteText = quoteText
+                            .replace("\\", "\\\\") // バックスラッシュ
+                            .replace("'", "\\'")    // シングルクォート
+                            .replace("\"", "\\\"")   // ダブルクォート
+                            .replace("\n", "\\n")   // 改行
+                            .replace("\r", "\\r")   // キャリッジリターン
+                        scriptToExecute += """
+                            if (commentTextArea) {
+                                commentTextArea.value = '${escapedQuoteText}';
+                                console.log('Quote text set to textarea.');
+                            }
+                        """
+                    }
+
+                    scriptToExecute += """
                             submitButton.addEventListener('click', function() {
                                 var initialCommentValue = commentTextArea.value;
                                 if (initialCommentValue !== "") {
@@ -155,22 +175,23 @@ class ReplyActivity : AppCompatActivity() {
                                     var elapsedTime = 0;
                                     var intervalId = setInterval(function() {
                                         elapsedTime += pollInterval;
-                                        if (commentTextArea.value === '') {
+                                        if (commentTextArea.value === '') { // 送信後は空になると想定
                                             clearInterval(intervalId);
                                             if (window.AndroidBridge && typeof window.AndroidBridge.submissionSuccessful === 'function') {
                                                 window.AndroidBridge.submissionSuccessful();
                                             }
                                         } else if (elapsedTime >= maxPollTime) {
                                             clearInterval(intervalId);
+                                            console.log('Polling timed out, textarea value did not change to empty.');
                                         }
                                     }, pollInterval);
                                 }
                             });
                             console.log('Form isolated and submission listener attached.');
                         })()
-                    """.trimIndent().replace("<caret>", " ")
-                    view?.evaluateJavascript(javascript, null)
-                    Log.d(TAG, "JavaScript for form isolation and submission detection executed.")
+                    """.trimIndent().replace("<caret>", " ") // <caret> はもしあれば削除
+                    view?.evaluateJavascript(scriptToExecute, null)
+                    Log.d(TAG, "JavaScript for form isolation, quote setting, and submission detection executed.")
                 }
 
                 val pageContentForCheck = view?.title ?: ""

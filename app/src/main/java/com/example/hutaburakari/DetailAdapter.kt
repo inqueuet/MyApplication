@@ -15,7 +15,6 @@ import android.text.style.ClickableSpan
 import android.text.style.URLSpan
 import android.util.Log // ★ Logをインポート
 import android.view.KeyEvent
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -37,12 +36,14 @@ import coil.size.ViewSizeResolver // Added for ViewSizeResolver
 import kotlinx.coroutines.launch
 import java.util.regex.Pattern
 import android.text.Spanned
+import android.view.LayoutInflater
 
 class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(DetailDiffCallback()) {
 
     var onQuoteClickListener: ((quotedText: String) -> Unit)? = null
     var onSodaNeClickListener: ((resNum: String) -> Unit)? = null
     var onThreadEndTimeClickListener: (() -> Unit)? = null // ★ 新しいコールバックを追加
+    var onResNumClickListener: ((resNum: String, resBody: String) -> Unit)? = null // ★ レス番号クリックリスナー
     private var currentSearchQuery: String? = null
 
     private val fileNamePattern = Pattern.compile("""\b([a-zA-Z0-9_.-]+\.(?:jpg|jpeg|png|gif|mp4|webm|mov|avi|flv|mkv))\b""", Pattern.CASE_INSENSITIVE)
@@ -99,7 +100,8 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 onSodaNeClickListener,
                 fileNamePattern,
                 resNumPatternOriginal, // ★ ViewHolderには元のNo.xxx用パターンを渡す
-                sodaNePattern // Pass the updated pattern
+                sodaNePattern, // Pass the updated pattern
+                onResNumClickListener // ★ 新しいリスナーを追加
             )
             VIEW_TYPE_IMAGE -> ImageViewHolder(
                 LayoutInflater.from(parent.context).inflate(R.layout.detail_item_image, parent, false),
@@ -134,7 +136,8 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         private val onSodaNeClickListener: ((resNum: String) -> Unit)?,
         private val fileNamePattern: Pattern,
         private val resNumPatternForMain: Pattern, // ★メインのレス番号取得用
-        private val sodaNePatternForClick: Pattern // ★そうだね/＋ クリック処理用 (updated pattern comes here)
+        private val sodaNePatternForClick: Pattern, // ★そうだね/＋ クリック処理用 (updated pattern comes here)
+        private val onResNumClickListener: ((resNum: String, resBody: String) -> Unit)? // ★ 新しいリスナーを追加
     ) : RecyclerView.ViewHolder(view) {
         private val textView: TextView = view.findViewById(R.id.detailTextView)
 
@@ -143,14 +146,45 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
             val spannableBuilder = SpannableStringBuilder(spannedFromHtml)
             val contentString = spannableBuilder.toString() // spannableBuilderから取得する方が安全
 
-            var mainResNum: String? = null
-            val mainResMatcher = resNumPatternForMain.matcher(contentString)
-            if (mainResMatcher.find()) {
-                mainResNum = mainResMatcher.group(1)
-                 Log.d("TextViewHolder", "Main resNum found: $mainResNum for content: ${contentString.take(50)}")
+            var mainResNum: String? = null // このスコープで mainResNum を宣言
+
+            // ★ No.xxx へのクリック処理を追加ここから
+            val tempResNumMatcher = resNumPatternForMain.matcher(item.htmlContent) // item.htmlContent から No.xxx を探す
+            if (tempResNumMatcher.find()) { //  No.xxx があれば
+                mainResNum = tempResNumMatcher.group(1) // No.に続く数字部分を取得 (ここで mainResNum に代入)
+                val resNumText = tempResNumMatcher.group(0) // "No.xxx" というテキスト全体
+                
+                // contentString (画面表示用テキスト) の中で "No.xxx" が実際にどこにあるか再検索
+                val displayResNumMatcher = Pattern.compile(Pattern.quote(resNumText)).matcher(contentString)
+                if (displayResNumMatcher.find()) {
+                    val start = displayResNumMatcher.start()
+                    val end = displayResNumMatcher.end()
+
+                    val resNumClickableSpan = object : ClickableSpan() {
+                        override fun onClick(widget: View) {
+                            // val plainTextBody = Html.fromHtml(item.htmlContent, Html.FROM_HTML_MODE_COMPACT).toString()
+                            //         .replaceFirst(resNumText, "") // 本文から "No.xxx" を除去
+                            //         .trim() // 前後の空白を除去
+                            // val quotedBody = ">No.$mainResNum\n" + plainTextBody.lines().joinToString("\n") { "> $it" }
+                            val quotedResNum = ">No.$mainResNum" // ★ 変更点: レス番号のみの引用文字列
+                            onResNumClickListener?.invoke(mainResNum!!, quotedResNum) // ★ 変更点: quotedResNum を渡す
+                        }
+
+                        override fun updateDrawState(ds: TextPaint) {
+                            super.updateDrawState(ds)
+                            ds.isUnderlineText = true
+                            // ds.color = Color.BLUE // 必要であれば色を設定
+                        }
+                    }
+                    spannableBuilder.setSpan(resNumClickableSpan, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    Log.d("TextViewHolder", "Set ClickableSpan for ResNum: $resNumText at $start-$end")
+                } else {
+                     Log.w("TextViewHolder", "ResNum '$resNumText' found in htmlContent but NOT in display contentString: ${contentString.take(100)}")
+                }
             } else {
-                 Log.w("TextViewHolder", "Main resNum NOT found for content: ${contentString.take(50)}")
+                Log.w("TextViewHolder", "Main resNum (No.xxx) NOT found in htmlContent: ${item.htmlContent.take(100)}")
             }
+            // ★ No.xxx へのクリック処理ここまで
 
 
             val quotePattern = Pattern.compile("^>(.+)$", Pattern.MULTILINE)
@@ -193,6 +227,8 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
             }
 
             // ★★★ 「そうだね」と「＋」の処理を修正 ★★★
+            // mainResNum が上記で設定されていれば、ここでの再検索は不要になるか、あるいはロジックを合わせる
+            // 現状では、上記の No.xxx 処理で mainResNum が設定されることを期待する
             if (mainResNum != null) { // mainResNum がないと「そうだね」の対象が不明確
                 val sodaNeMatcher = sodaNePatternForClick.matcher(contentString)
                 while (sodaNeMatcher.find()) {
@@ -298,15 +334,18 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                         val spans = buffer.getSpans(off, off, ClickableSpan::class.java)
                         if (spans.isNotEmpty()) {
                             Log.d("CustomLinkMovement", "Found ${spans.size} ClickableSpan(s) at offset $off.")
-
+                            // Give priority to our custom spans by checking them first.
                             for (span in spans) {
-                                if (span is SodaNeClickableSpan) {
-                                    Log.d("CustomLinkMovement", "Handling SodaNeClickableSpan: $span")
-                                    span.onClick(widget)
+                                if (span is SodaNeClickableSpan) { // Assuming ResNumClickableSpan would be similar or part of this logic
+                                    Log.d("CustomLinkMovement", "Handling SodaNeClickableSpan or similar custom span: $span")
+                                    span.onClick(widget) // This will trigger onResNumClickListener or onSodaNeClickListener
                                     return true
                                 }
+                                // If we create a distinct ResNumClickableSpan, check for it here too.
+                                // For now, the No.xxx click is handled by a generic ClickableSpan, so it might fall into the next checks.
                             }
-
+                            // Check for other ClickableSpans (like URLSpan or the general quote/file spans)
+                            // The newly added No.xxx ClickableSpan will be caught here if not made a distinct class.
                             for (span in spans) { 
                                 if (span is URLSpan) {
                                     val url = span.url
@@ -318,9 +357,9 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                                         span.onClick(widget)
                                     }
                                     return true 
-                                } else if (span !is SodaNeClickableSpan) { 
-                                    Log.d("CustomLinkMovement", "Handling other ClickableSpan: $span")
-                                    span.onClick(widget)
+                                } else if (span !is SodaNeClickableSpan) { // Ensure it's not a SodaNe span again
+                                    Log.d("CustomLinkMovement", "Handling other ClickableSpan (could be No.xxx, quote, or file): $span")
+                                    span.onClick(widget) // This will execute onClick for No.xxx, quote, or file spans
                                     return true 
                                 }
                             }
