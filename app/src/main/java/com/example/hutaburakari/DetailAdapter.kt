@@ -42,6 +42,7 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
 
     var onQuoteClickListener: ((quotedText: String) -> Unit)? = null
     var onSodaNeClickListener: ((resNum: String) -> Unit)? = null
+    var onThreadEndTimeClickListener: (() -> Unit)? = null // ★ 新しいコールバックを追加
     private var currentSearchQuery: String? = null
 
     private val fileNamePattern = Pattern.compile("""\b([a-zA-Z0-9_.-]+\.(?:jpg|jpeg|png|gif|mp4|webm|mov|avi|flv|mkv))\b""", Pattern.CASE_INSENSITIVE)
@@ -110,8 +111,9 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
                 onQuoteClickListener,
                 fileNamePattern
             )
-            VIEW_TYPE_THREAD_END_TIME -> ThreadEndTimeViewHolder(
-                LayoutInflater.from(parent.context).inflate(R.layout.detail_item_thread_end_time, parent, false)
+            VIEW_TYPE_THREAD_END_TIME -> ThreadEndTimeViewHolder( // ★ リスナーを渡す
+                LayoutInflater.from(parent.context).inflate(R.layout.detail_item_thread_end_time, parent, false),
+                onThreadEndTimeClickListener
             )
             else -> throw IllegalArgumentException("Invalid view type: $viewType")
         }
@@ -602,11 +604,18 @@ class DetailAdapter : ListAdapter<DetailContent, RecyclerView.ViewHolder>(Detail
         }
     }
 
-    class ThreadEndTimeViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+    class ThreadEndTimeViewHolder( // ★ リスナーを受け取るように変更
+        view: View,
+        private val onThreadEndTimeClickListener: (() -> Unit)?
+    ) : RecyclerView.ViewHolder(view) {
         private val endTimeTextView: TextView = view.findViewById(R.id.endTimeTextView)
 
         fun bind(item: DetailContent.ThreadEndTime) {
             endTimeTextView.text = item.endTime
+            // ★ クリックリスナーを設定
+            endTimeTextView.setOnClickListener {
+                onThreadEndTimeClickListener?.invoke()
+            }
             endTimeTextView.setOnLongClickListener {
                 val context = itemView.context
                 AlertDialog.Builder(context)

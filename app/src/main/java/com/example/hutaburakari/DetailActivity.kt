@@ -122,13 +122,7 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
                 true
             }
             R.id.action_reload -> {
-                currentUrl?.let { urlToRefresh ->
-                    saveCurrentScrollStateIfApplicable()
-                    detailSearchManager.clearSearch()
-                    scrollHistory.clear()
-                    viewModel.fetchDetails(urlToRefresh, forceRefresh = true)
-                    showToastOnUiThread("再読み込みしています...", Toast.LENGTH_SHORT)
-                }
+                reloadDetails() // ★ 再読み込み処理をメソッドに抽出
                 true
             }
             R.id.action_scroll_back -> {
@@ -150,13 +144,25 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
         }
     }
 
+    // ★ 再読み込み処理を共通化
+    private fun reloadDetails() {
+        currentUrl?.let { urlToRefresh ->
+            saveCurrentScrollStateIfApplicable()
+            detailSearchManager.clearSearch()
+            scrollHistory.clear()
+            viewModel.fetchDetails(urlToRefresh, forceRefresh = true)
+            showToastOnUiThread("再読み込みしています...", Toast.LENGTH_SHORT)
+        }
+    }
+
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         Log.d("DetailActivity", "onActivityResult: requestCode=$requestCode, resultCode=$resultCode") // ログ追加
         if (requestCode == REQUEST_CODE_REPLY && resultCode == Activity.RESULT_OK) {
             Log.d("DetailActivity", "onActivityResult: Reply successful, attempting to refresh.") // ログ追加
             Toast.makeText(this, "Reply successful, refreshing...", Toast.LENGTH_SHORT).show() // 確認用トースト
-            currentUrl?.let { urlToRefresh ->
+            currentUrl?.let { urlToRefresh -> // ★ ここも共通メソッドを利用可能だが、トーストメッセージが異なるため個別実装のまま
                 saveCurrentScrollStateIfApplicable()
                 detailSearchManager.clearSearch()
                 scrollHistory.clear()
@@ -222,6 +228,11 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
         }
         detailAdapter.onSodaNeClickListener = {
             resNum -> viewModel.postSodaNe(resNum)
+        }
+        // ★ ここに onThreadEndTimeClickListener を設定
+        detailAdapter.onThreadEndTimeClickListener = {
+            Log.d("DetailActivity", "ThreadEndTime clicked, reloading...")
+            reloadDetails() // ★ 再読み込み処理を呼び出し
         }
         binding.detailRecyclerView.apply {
             layoutManager = this@DetailActivity.layoutManager
