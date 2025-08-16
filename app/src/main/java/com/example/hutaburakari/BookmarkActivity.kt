@@ -2,11 +2,16 @@ package com.example.hutaburakari
 
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.ViewGroup
 // import android.view.MenuItem // onSupportNavigateUp を使うので、これは必須ではない
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updateLayoutParams
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.hutaburakari.databinding.ActivityBookmarkBinding
 import com.example.hutaburakari.databinding.DialogAddBookmarkBinding
@@ -21,6 +26,7 @@ class BookmarkActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         binding = ActivityBookmarkBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -38,6 +44,24 @@ class BookmarkActivity : AppCompatActivity() {
         binding.btnAddBookmark.setOnClickListener {
             currentEditingBookmarkUrl = null
             showAddEditBookmarkDialog(null)
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.btnAddBookmark) { view, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            // Get original margins
+            val mlp = view.layoutParams as ViewGroup.MarginLayoutParams
+            view.updateLayoutParams {
+                // Ensure the type of 'this' inside the lambda is ViewGroup.MarginLayoutParams
+                // If not, you might need to explicitly cast or check the type of layoutParams
+                if (this is ViewGroup.MarginLayoutParams) {
+                    bottomMargin = mlp.bottomMargin + insets.bottom
+                }
+                // Optionally adjust other margins if needed, e.g., for gesture navigation handles
+                // leftMargin = mlp.leftMargin + insets.left
+                // rightMargin = mlp.rightMargin + insets.right
+            }
+            // Return CONSUMED if you don't want the insets to be passed to other views
+            WindowInsetsCompat.CONSUMED
         }
     }
 

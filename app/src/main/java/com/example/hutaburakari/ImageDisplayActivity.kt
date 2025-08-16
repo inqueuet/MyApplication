@@ -5,11 +5,16 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updateLayoutParams
 import coil.load
 
 class ImageDisplayActivity : AppCompatActivity() {
@@ -21,6 +26,7 @@ class ImageDisplayActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false) // Added for Edge-to-Edge
         setContentView(R.layout.activity_image_display)
 
         val imageView: ImageView = findViewById(R.id.imageViewDisplayedImage)
@@ -47,6 +53,18 @@ class ImageDisplayActivity : AppCompatActivity() {
             val clip = ClipData.newPlainText("prompt", textViewPrompt.text.toString())
             clipboard.setPrimaryClip(clip)
             Toast.makeText(this, "プロンプトをコピーしました", Toast.LENGTH_SHORT).show()
+        }
+
+        // Adjust bottom margin for the copy button to account for navigation bar
+        ViewCompat.setOnApplyWindowInsetsListener(buttonCopy) { view, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val mlp = view.layoutParams as ViewGroup.MarginLayoutParams
+            view.updateLayoutParams {
+                if (this is ViewGroup.MarginLayoutParams) {
+                    bottomMargin = mlp.bottomMargin + insets.bottom
+                }
+            }
+            WindowInsetsCompat.CONSUMED
         }
     }
 }

@@ -12,10 +12,16 @@ import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Log
 import android.view.MotionEvent
+import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updateLayoutParams
+import androidx.core.view.updatePadding
 import androidx.exifinterface.media.ExifInterface
 import com.example.hutaburakari.databinding.ActivityImageEditBinding
 import com.google.gson.Gson
@@ -61,6 +67,7 @@ class ImageEditActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         binding = ActivityImageEditBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -112,6 +119,14 @@ class ImageEditActivity : AppCompatActivity() {
         setupPaint()
         setupTouchListener()
         setupButtons()
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.controlsLayout) { view, windowInsets ->
+            val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            // Apply the insets as padding to the controlsLayout
+            view.updatePadding(bottom = insets.bottom)
+            // Return CONSUMED if you don't want the insets to be passed to other views
+            WindowInsetsCompat.CONSUMED
+        }
     }
 
     private fun setupSaveImageLauncher() {

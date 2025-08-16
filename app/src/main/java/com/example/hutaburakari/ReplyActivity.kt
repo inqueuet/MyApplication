@@ -11,6 +11,7 @@ import android.webkit.*
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat // Added import
 import androidx.core.view.isVisible
 import com.example.hutaburakari.databinding.ActivityReplyBinding
 import com.franmontiel.persistentcookiejar.PersistentCookieJar
@@ -54,6 +55,7 @@ class ReplyActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false) // Added for edge-to-edge
         binding = ActivityReplyBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
