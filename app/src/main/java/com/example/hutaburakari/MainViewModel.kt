@@ -1,6 +1,7 @@
 package com.example.hutaburakari
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -25,16 +26,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     */
 
-    fun fetchImagesFromUrl(url: String) {
+    fun fetchImagesFromUrl(url: String) { // url はカタログページの完全なURL (例: https://may.2chan.net/27/futaba.php?mode=cat&sort=3)
         viewModelScope.launch {
-            _isLoading.value = true // 読み込み開始
+            _isLoading.value = true
             try {
-                // NetworkClientがCookieを自動的に利用します
                 val document = NetworkClient.fetchDocument(getApplication(), url)
 
-                // パース処理は変更なし
                 val parsedItems = mutableListOf<ImageItem>()
-                val baseUrl = "https://may.2chan.net"
+                // val baseUrl = "https://may.2chan.net" // ← この固定のbaseUrlは使わない
 
                 val cells = document.select("#cattable td")
 
@@ -44,15 +43,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val smallTag = cell.select("small").first()
                     val fontTag = cell.select("font").first()
 
-                    if (imgTag != null && smallTag != null && fontTag != null) {
-                        val relativeSrc = imgTag.attr("src")
-                        val imageUrl = baseUrl + relativeSrc
-                        val relativeLink = linkTag?.attr("href")
-                        val detailUrl = baseUrl + "/b/" + relativeLink
+                    if (linkTag != null && imgTag != null && smallTag != null && fontTag != null) {
+                        // imgTagのsrc属性も同様にabsUrlで絶対URLを取得
+                        val imageUrl = imgTag.absUrl("src")
+                        // val relativeLink = linkTag?.attr("href") // ← attr("href")で相対パスを取得する代わりに
+                        val detailUrl = linkTag.absUrl("href") // ← absUrl("href")で絶対URLを取得する
                         val title = smallTag.text()
                         val replies = fontTag.text()
 
-                        parsedItems.add(ImageItem(imageUrl, title, replies, detailUrl))
+                        // imageUrlが空でないことを確認（万が一src属性が空だったり、不正な場合）
+                        if (imageUrl.isNotEmpty() && detailUrl.isNotEmpty()) {
+                             parsedItems.add(ImageItem(imageUrl, title, replies, detailUrl))
+                        } else {
+                            Log.w("MainViewModel", "Skipping item due to empty imageUrl or detailUrl. Image src: ${imgTag.attr("src")}, Link href: ${linkTag.attr("href")}")
+                        }
                     }
                 }
                 _images.value = parsedItems
@@ -61,7 +65,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _error.value = "データの取得に失敗しました: ${e.message}"
                 e.printStackTrace()
             } finally {
-                _isLoading.value = false // 読み込み終了
+                _isLoading.value = false
             }
         }
     }

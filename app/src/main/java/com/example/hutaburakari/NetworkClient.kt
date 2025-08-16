@@ -30,6 +30,7 @@ object NetworkClient {
     suspend fun postSodaNe(context: Context, resNum: String, referer: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
+                // ToDo: Make board part of the URL dynamic
                 val url = "https://may.2chan.net/sd.php?b.$resNum"
                 Log.d("NetworkClient", "postSodaNe: Attempting to GET to URL: $url with referer: $referer") // Changed POST to GET in log
                 val cookieStore = CookieStore(context.applicationContext)
@@ -42,7 +43,8 @@ object NetworkClient {
                     .header("accept-encoding", "gzip, deflate, br, zstd")
                     .header("accept-language", "ja,en-US;q=0.9,en;q=0.8")
                     .header("connection", "keep-alive")
-                    .header("host", "may.2chan.net")
+                    // ToDo: Make host dynamic based on referer
+                    .header("host", "may.2chan.net") 
                     .header("referer", referer)
                     .method(Connection.Method.GET) // Changed to GET
                     .ignoreContentType(true) 
@@ -70,9 +72,10 @@ object NetworkClient {
         }
     }
 
-    suspend fun applySettings(context: Context, settings: Map<String, String>) {
+    suspend fun applySettings(context: Context, boardBaseUrl: String, settings: Map<String, String>) {
         withContext(Dispatchers.IO) {
-            val settingsUrl = "https://may.2chan.net/b/futaba.php?mode=catset"
+            val settingsUrl = "${boardBaseUrl}futaba.php?mode=catset"
+            Log.d("NetworkClient", "applySettings: Applying to URL: $settingsUrl with settings: $settings")
             val cookieStore = CookieStore(context.applicationContext)
             val storedCookies = cookieStore.loadCookies()
             val response = Jsoup.connect(settingsUrl)
@@ -84,6 +87,7 @@ object NetworkClient {
             if (newCookies.isNotEmpty()) {
                 cookieStore.saveCookies(newCookies)
             }
+            Log.d("NetworkClient", "applySettings: Response status code: ${response.statusCode()}")
         }
     }
 }

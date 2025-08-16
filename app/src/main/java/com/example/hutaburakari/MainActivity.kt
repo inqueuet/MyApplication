@@ -73,17 +73,23 @@ class MainActivity : AppCompatActivity(), SearchView.OnQueryTextListener { // Se
     }
 
     private fun fetchDataForCurrentUrl() {
-        currentSelectedUrl?.let {
+        currentSelectedUrl?.let { url ->
             lifecycleScope.launch {
-                applyCatalogSettings()
-                viewModel.fetchImagesFromUrl(it)
+                val boardBaseUrl = url.substringBefore("futaba.php")
+                if (boardBaseUrl.isNotEmpty() && url.contains("futaba.php")) {
+                    applyCatalogSettings(boardBaseUrl)
+                } else {
+                    Log.e("MainActivity", "Cannot derive boardBaseUrl from: $url. Skipping applyCatalogSettings.")
+                    // Consider showing a user-facing error or using a default if appropriate
+                }
+                viewModel.fetchImagesFromUrl(url)
             }
         } ?: run {
             showBookmarkSelectionDialog()
         }
     }
 
-    private suspend fun applyCatalogSettings() {
+    private suspend fun applyCatalogSettings(boardBaseUrl: String) {
         val settings = mapOf(
             "mode" to "catset",
             "cx" to "20",
@@ -91,7 +97,7 @@ class MainActivity : AppCompatActivity(), SearchView.OnQueryTextListener { // Se
             "cl" to "10"
         )
         try {
-            NetworkClient.applySettings(this, settings)
+            NetworkClient.applySettings(this@MainActivity, boardBaseUrl, settings)
             withContext(Dispatchers.Main) {
                 // Toast.makeText(this@MainActivity, "カタログ設定を適用しました", Toast.LENGTH_SHORT).show()
             }

@@ -101,16 +101,18 @@ class DetailActivity : AppCompatActivity(), SearchManagerCallback {
                 currentUrl?.let { url ->
                     val threadId = url.substringAfterLast("/").substringBefore(".htm")
                     // 正しい boardUrl の生成
-                    val boardUrl = url.substringBeforeLast("/").substringBeforeLast("/") + "/" // 末尾にスラッシュを追加
+                    val boardBasePath = url.substringBeforeLast("/").substringBeforeLast("/") + "/" // 例: https://may.2chan.net/b/
+                    val boardPostUrl = boardBasePath + "futaba.php" // 例: https://may.2chan.net/b/futaba.php
                     
                     Log.d("DetailActivity", "Action Reply: Thread ID: $threadId, Original currentUrl: $url")
-                    Log.d("DetailActivity", "Action Reply: Generated boardUrl for ReplyActivity: $boardUrl")
+                    Log.d("DetailActivity", "Action Reply: Generated boardBasePath: $boardBasePath")
+                    Log.d("DetailActivity", "Action Reply: Generated boardPostUrl for ReplyActivity: $boardPostUrl")
                     Log.d("DetailActivity", "Action Reply: Thread Title: ${binding.toolbarTitle.text}")
 
                     val intent = Intent(this, ReplyActivity::class.java).apply {
                         putExtra(ReplyActivity.EXTRA_THREAD_ID, threadId)
                         putExtra(ReplyActivity.EXTRA_THREAD_TITLE, binding.toolbarTitle.text.toString())
-                        putExtra(ReplyActivity.EXTRA_BOARD_URL, boardUrl)
+                        putExtra(ReplyActivity.EXTRA_BOARD_URL, boardPostUrl) // 修正：完全な投稿先URLを渡す
                     }
                     startActivity(intent)
                 }
